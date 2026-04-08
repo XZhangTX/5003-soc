@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+venv/
+env/
+.venv/
+.env/
+.env.local
+.env.production
+.env.test
+
+# Notebooks / IDE
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.swp
+
+# Build / test / logs
+build/
+dist/
+*.egg-info/
+.eggs/
+*.manifest
+*.spec
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# Outputs / checkpoints
+output/
+runs/
+*.pt
+
+# Data and archives
+data_complete/
+data/
+*.zip
+*.7z
+*.rar
+
+# Generated analysis artifacts
+*.csv
+*.xls
+*.xlsx
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.svg
+*.tif
+*.tiff

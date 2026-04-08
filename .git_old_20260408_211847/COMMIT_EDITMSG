@@ -1,0 +1,54 @@
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# On branch main
+# Your branch is ahead of 'origin/main' by 1 commit.
+#   (use "git push" to publish your local commits)
+#
+# Changes to be committed:
+#	deleted:    "0.3C_0.4C_0.5C/Cycle1-3\346\230\2570.3C\351\200\237\347\216\207\357\274\2144-6\346\230\2570.4C\357\274\2147-9\346\230\2570.5C.txt"
+#	deleted:    "0.5c_Cycle1-Cycle8_gel_condition/Cycle1-4\346\230\257\345\234\250\347\241\205\350\203\266=2mm\346\203\205\345\206\265\344\270\213\347\232\204\345\276\252\347\216\257\347\273\223\346\236\234\357\274\2145-8\346\230\2573mm\347\232\204\347\273\223\346\236\234.txt"
+#	new file:   README.md
+#	modified:   baseline_tabular.py
+#	new file:   data_complete/data_processing/build_s11_cycles_from_daily_tables.m
+#	new file:   data_complete/data_processing/build_soc_cycles_from_iv.m
+#	new file:   data_complete/data_processing/split_align_s11_by_soc_cycles.m
+#	modified:   eval_infer.py
+#	renamed:    layers/Embed.py -> legacy/framework/layers/Embed.py
+#	renamed:    layers/SelfAttention_Family.py -> legacy/framework/layers/SelfAttention_Family.py
+#	renamed:    layers/Transformer_EncDec.py -> legacy/framework/layers/Transformer_EncDec.py
+#	renamed:    layers/VSN.py -> legacy/framework/layers/VSN.py
+#	renamed:    layers/__init__.py -> legacy/framework/layers/__init__.py
+#	renamed:    model/itransformer.py -> legacy/framework/model/itransformer.py
+#	renamed:    utils/masking.py -> legacy/framework/utils/masking.py
+#	renamed:    combine_processing.py -> legacy/old_scripts/combine_processing.py
+#	new file:   legacy/old_scripts/compare_results.py
+#	renamed:    data_processing.py -> legacy/old_scripts/data_processing.py
+#	renamed:    data_visualize.py -> legacy/old_scripts/data_visualize.py
+#	renamed:    eval_results.py -> legacy/old_scripts/eval_results.py
+#	new file:   legacy/old_scripts/merge_charge_discharge.py
+#	renamed:    phase_processing.py -> legacy/old_scripts/phase_processing.py
+#	renamed:    run_origial.py -> legacy/old_scripts/run_origial.py
+#	new file:   legacy/old_scripts/split_charge_discharge.py
+#	renamed:    temp_segment.txt -> legacy/old_scripts/temp_segment.txt
+#	new file:   legacy/old_scripts/verify_combined.py
+#	renamed:    viz_results.py -> legacy/old_scripts/viz_results.py
+#	renamed:    viz_soc_freq_heatmap.py -> legacy/old_scripts/viz_soc_freq_heatmap.py
+#	renamed:    viz_soc_freq_trends.py -> legacy/old_scripts/viz_soc_freq_trends.py
+#	modified:   run.py
+#	new file:   src/__init__.py
+#	new file:   src/models/__init__.py
+#	new file:   src/models/baselines.py
+#	new file:   src/models/soc_itransformer.py
+#	new file:   src/train/__init__.py
+#	new file:   src/train/train.py
+#	new file:   src/utils/__init__.py
+#	new file:   src/utils/io.py
+#	new file:   src/utils/metrics.py
+#	new file:   src/utils/seed.py
+#	new file:   src/validation/__init__.py
+#	new file:   src/validation/evaluate.py
+#	new file:   src/visualization/__init__.py
+#	new file:   src/visualization/plots.py
+#
