@@ -42,7 +42,7 @@ runs/
 
 # Data and archives
 data_complete/
-data/
+/data/
 *.zip
 *.7z
 *.rar
