@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from src.data.discovery import discover_s11_records
 from src.data.dataset_soh_proxy import S11SOHProxyDataset, build_bundle_soh_proxy, inverse_cycle_scale
-from src.models import SpectrumTransformerRegressor
+from src.models import ConvTransformerRegressor, SpectrumTransformerRegressor
 from src.utils import ensure_dir, regression_metrics, save_json, set_seed, timestamp
 from src.visualization import plot_attention_heatmap, plot_prediction_scatter, plot_training_curve
 
@@ -28,7 +28,9 @@ def evaluate_model_soh(model, loader, device, label_scale, collect_attention: bo
         ys.append(yb.numpy())
         ps.append(pred)
         if collect_attention and getattr(model, "last_freq_attn", None) is not None:
-            attn_list.append(model.last_freq_attn.numpy())
+            attn = model.last_freq_attn
+            if attn is not None:
+                attn_list.append(attn.numpy())
 
     y_true_norm = np.concatenate(ys)
     y_pred_norm = np.concatenate(ps)
@@ -48,6 +50,28 @@ def _split_records(records, test_ratio: float, seed: int):
     train_records = [records[i] for i in train_idx]
     val_records = [records[i] for i in val_idx]
     return train_records, val_records
+
+
+def build_model(args, train_bundle):
+    common = dict(
+        d_in=train_bundle.feature_dim,
+        n_freq=len(train_bundle.freqs),
+        d_model=args.d_model,
+        nhead=args.nhead,
+        num_layers=args.layers,
+        dim_feedforward=args.ffn,
+        dropout=args.dropout,
+    )
+    if args.model_arch == "transformer":
+        return SpectrumTransformerRegressor(**common)
+    if args.model_arch == "conv_transformer":
+        return ConvTransformerRegressor(
+            **common,
+            conv_channels=args.conv_channels,
+            kernel_size=args.kernel_size,
+            patch_stride=args.patch_stride,
+        )
+    raise ValueError(f"Unsupported model_arch={args.model_arch}")
 
 
 def main(args):
@@ -88,20 +112,13 @@ def main(args):
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.val_num_workers, pin_memory=pin_memory)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = SpectrumTransformerRegressor(
-        d_in=train_bundle.feature_dim,
-        n_freq=len(train_bundle.freqs),
-        d_model=args.d_model,
-        nhead=args.nhead,
-        num_layers=args.layers,
-        dim_feedforward=args.ffn,
-        dropout=args.dropout,
-    ).to(device)
+    model = build_model(args, train_bundle).to(device)
 
     print(
         f"Loaded {len(records)} records | train={len(train_records)} val={len(val_records)} | "
         f"n_freq={len(train_bundle.freqs)} feature_dim={train_bundle.feature_dim} | "
-        f"soh_proxy_scale={train_bundle.label_scale} | batch_size={args.batch_size} num_workers={args.num_workers}/{args.val_num_workers} pin_memory={pin_memory}"
+        f"soh_proxy_scale={train_bundle.label_scale} | model={args.model_arch} | "
+        f"batch_size={args.batch_size} num_workers={args.num_workers}/{args.val_num_workers} pin_memory={pin_memory}"
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -168,7 +185,7 @@ def main(args):
             xlabel="True SOH Proxy",
             ylabel="Predicted SOH Proxy",
         )
-        if attention is not None:
+        if attention is not None and attention.ndim == 1 and len(attention) == len(train_bundle.freqs):
             pd.DataFrame({"freq": train_bundle.freqs, "weight": attention}).to_csv(run_dir / "attention.csv", index=False)
             plot_attention_heatmap(train_bundle.freqs, attention, run_dir / "attention_heatmap.png")
 
@@ -211,6 +228,7 @@ def build_arg_parser():
     parser.add_argument("--input-root", type=str, default=r"D:\SOC_DATA\data_complete\data_processing\S11_ALIGN_SOC_new")
     parser.add_argument("--output-root", type=str, default="output")
     parser.add_argument("--tag", type=str, default=None)
+    parser.add_argument("--model-arch", type=str, default="conv_transformer", choices=["transformer", "conv_transformer"])
     parser.add_argument("--data-mode", type=str, default="raw", choices=["all", "raw", "socip0p1", "socip0p5", "socip1p0"])
     parser.add_argument("--name-contains", type=str, default=None)
     parser.add_argument("--include-phase", action="store_true")
@@ -236,6 +254,9 @@ def build_arg_parser():
     parser.add_argument("--layers", type=int, default=4)
     parser.add_argument("--ffn", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--conv-channels", type=int, default=32)
+    parser.add_argument("--kernel-size", type=int, default=9)
+    parser.add_argument("--patch-stride", type=int, default=4)
     return parser
 
 
