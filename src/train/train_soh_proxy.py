@@ -134,13 +134,12 @@ def main(args):
         optimizer,
         T_max=cosine_epochs,
     )
+    loss_fn = nn.SmoothL1Loss(beta=args.smooth_l1_beta)
     scheduler = SequentialLR(
         optimizer,
         schedulers=[warmup_scheduler, cosine_scheduler],
         milestones=[warmup_epochs],
     )
-    loss_l1 = nn.L1Loss()
-    loss_l2 = nn.MSELoss()
 
     run_dir = ensure_dir(Path(args.output_root) / "train_soh_proxy" / (args.tag or timestamp()))
     best_path = run_dir / "best.pt"
@@ -162,7 +161,7 @@ def main(args):
                 print(f"pred[:5]={pred[:5].detach().cpu().numpy()}")
                 print(f"yb[:5]={yb[:5].detach().cpu().numpy()}")
 
-            loss = 0.5 * loss_l1(pred, yb) + 0.5 * loss_l2(pred, yb)
+            loss = loss_fn(pred, yb)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -244,6 +243,7 @@ def build_arg_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--warmup-epochs", type=int, default=5)
     parser.add_argument("--warmup-start-factor", type=float, default=0.1)
+    parser.add_argument("--smooth-l1-beta", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=1e-2)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--patience", type=int, default=10)
@@ -262,3 +262,4 @@ def build_arg_parser():
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
+
