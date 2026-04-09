@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from sklearn.model_selection import GroupShuffleSplit
+from torch.optim.lr_scheduler import LinearLR, SequentialLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -100,11 +101,27 @@ def main(args):
     print(
         f"Loaded {len(records)} records | train={len(train_records)} val={len(val_records)} | "
         f"n_freq={len(train_bundle.freqs)} feature_dim={train_bundle.feature_dim} | "
-        f"cycle_scale={train_bundle.label_scale} | batch_size={args.batch_size} num_workers={args.num_workers}/{args.val_num_workers} pin_memory={pin_memory}"
+        f"soh_proxy_scale={train_bundle.label_scale} | batch_size={args.batch_size} num_workers={args.num_workers}/{args.val_num_workers} pin_memory={pin_memory}"
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    warmup_epochs = max(1, args.warmup_epochs)
+    cosine_epochs = max(1, args.epochs - warmup_epochs)
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=args.warmup_start_factor,
+        end_factor=1.0,
+        total_iters=warmup_epochs,
+    )
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=cosine_epochs,
+    )
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_epochs],
+    )
     loss_l1 = nn.L1Loss()
     loss_l2 = nn.MSELoss()
 
@@ -119,7 +136,15 @@ def main(args):
         train_losses = []
         for xb, yb in tqdm(train_loader, desc=f"train-soh-{epoch}", leave=False):
             xb, yb = xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
-            pred = model(xb)
+            pred = model(xb).squeeze(-1)
+            if yb.ndim > 1:
+                yb = yb.squeeze(-1)
+
+            if epoch == 1 and not train_losses:
+                print(f"pred.shape={tuple(pred.shape)}, yb.shape={tuple(yb.shape)}")
+                print(f"pred[:5]={pred[:5].detach().cpu().numpy()}")
+                print(f"yb[:5]={yb[:5].detach().cpu().numpy()}")
+
             loss = 0.5 * loss_l1(pred, yb) + 0.5 * loss_l2(pred, yb)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -131,7 +156,7 @@ def main(args):
         metrics, y_true, y_pred, attention = evaluate_model_soh(model, val_loader, device, train_bundle.label_scale, collect_attention=True)
         row = {"epoch": epoch, "train_loss": float(np.mean(train_losses)), **metrics}
         log_rows.append(row)
-        print(f"Epoch {epoch:03d} | train_loss={row['train_loss']:.4f} | val_rmse={metrics['rmse']:.4f} | val_mae={metrics['mae']:.4f}")
+        print(f"Epoch {epoch:03d} | lr={optimizer.param_groups[0]['lr']:.6g} | train_loss={row['train_loss']:.4f} | val_rmse={metrics['rmse']:.4f} | val_mae={metrics['mae']:.4f}")
 
         pd.DataFrame(log_rows).to_csv(run_dir / "training_log.csv", index=False)
         pd.DataFrame({"y_true": y_true, "y_pred": y_pred}).to_csv(run_dir / "val_predictions.csv", index=False)
@@ -140,8 +165,8 @@ def main(args):
             y_pred,
             run_dir / "val_scatter.png",
             title="Validation SOH Proxy Scatter",
-            xlabel="True Cycle",
-            ylabel="Predicted Cycle",
+            xlabel="True SOH Proxy",
+            ylabel="Predicted SOH Proxy",
         )
         if attention is not None:
             pd.DataFrame({"freq": train_bundle.freqs, "weight": attention}).to_csv(run_dir / "attention.csv", index=False)
@@ -174,7 +199,7 @@ def main(args):
             "feature_dim": train_bundle.feature_dim,
             "n_freq": len(train_bundle.freqs),
             "label_scale": list(train_bundle.label_scale),
-            "label_name": "cycle_soh_proxy",
+            "label_name": "soh_proxy_0_100",
         },
     )
     plot_training_curve(run_dir / "training_log.csv", run_dir / "training_curve.png")
@@ -198,7 +223,9 @@ def build_arg_parser():
     parser.add_argument("--val-num-workers", type=int, default=4)
     parser.add_argument("--pin-memory", action="store_true")
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--warmup-epochs", type=int, default=5)
+    parser.add_argument("--warmup-start-factor", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=1e-2)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--patience", type=int, default=10)
@@ -214,4 +241,3 @@ def build_arg_parser():
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
-

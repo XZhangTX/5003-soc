@@ -75,13 +75,13 @@ def _normalize_cycle(cycle_values: np.ndarray, label_scale: tuple[float, float] 
     else:
         cmin, cmax = label_scale
     denom = max(cmax - cmin, 1.0)
-    return (cycle_values - cmin) / denom, (cmin, cmax)
+    return 100.0 * (cycle_values - cmin) / denom, (cmin, cmax)
 
 
 def inverse_cycle_scale(y: np.ndarray, label_scale: tuple[float, float]) -> np.ndarray:
     cmin, cmax = label_scale
     denom = max(cmax - cmin, 1.0)
-    return np.asarray(y, dtype=np.float32) * denom + cmin
+    return np.asarray(y, dtype=np.float32) * denom / 100.0 + cmin
 
 
 def build_bundle_soh_proxy(
@@ -98,7 +98,6 @@ def build_bundle_soh_proxy(
         raise ValueError("No S11 records found for dataset construction")
 
     x_parts: list[np.ndarray] = []
-    y_parts: list[np.ndarray] = []
     group_parts: list[np.ndarray] = []
     raw_cycle_parts: list[np.ndarray] = []
     freq_template: list[float] | None = None
@@ -180,5 +179,3 @@ def build_bundle_soh_proxy(
         scaler=fitted_scaler,
         label_scale=fitted_label_scale,
     )
-
-

@@ -79,8 +79,8 @@ def main(args):
         y_pred,
         out_dir / "scatter.png",
         title=f"{args.model.upper()} SOH Proxy Scatter",
-        xlabel="True Cycle",
-        ylabel="Predicted Cycle",
+        xlabel="True SOH Proxy",
+        ylabel="Predicted SOH Proxy",
     )
     print(f"Saved SOH proxy baseline outputs to {out_dir}")
 
@@ -113,4 +113,3 @@ def build_arg_parser():
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
-
