@@ -75,13 +75,13 @@ def _normalize_cycle(cycle_values: np.ndarray, label_scale: tuple[float, float] 
     else:
         cmin, cmax = label_scale
     denom = max(cmax - cmin, 1.0)
-    return 100.0 * (cycle_values - cmin) / denom, (cmin, cmax)
+    return (cycle_values - cmin) / denom, (cmin, cmax)
 
 
 def inverse_cycle_scale(y: np.ndarray, label_scale: tuple[float, float]) -> np.ndarray:
     cmin, cmax = label_scale
     denom = max(cmax - cmin, 1.0)
-    return np.asarray(y, dtype=np.float32) * denom / 100.0 + cmin
+    return np.asarray(y, dtype=np.float32) * 100.0
 
 
 def build_bundle_soh_proxy(
@@ -179,3 +179,4 @@ def build_bundle_soh_proxy(
         scaler=fitted_scaler,
         label_scale=fitted_label_scale,
     )
+
