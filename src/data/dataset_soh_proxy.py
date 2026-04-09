@@ -146,11 +146,13 @@ def build_bundle_soh_proxy(
             features = mag_values[..., None]
 
         cycle_values = mag_df.loc[mask, "Cycle"].astype(np.float32).to_numpy()
-        groups = np.array([record.record_id] * len(cycle_values), dtype=object)
-
-        x_parts.append(features)
-        raw_cycle_parts.append(cycle_values)
-        group_parts.append(groups)
+        unique_cycles = np.unique(cycle_values)
+        for cycle in unique_cycles:
+            cycle_mask = cycle_values == cycle
+            cycle_features = features[cycle_mask].mean(axis=0, keepdims=True)
+            x_parts.append(cycle_features)
+            raw_cycle_parts.append(np.asarray([cycle], dtype=np.float32))
+            group_parts.append(np.asarray([record.record_id], dtype=object))
 
     if not x_parts or freq_template is None:
         raise ValueError("Dataset is empty after applying current filters")
@@ -178,3 +180,5 @@ def build_bundle_soh_proxy(
         scaler=fitted_scaler,
         label_scale=fitted_label_scale,
     )
+
+

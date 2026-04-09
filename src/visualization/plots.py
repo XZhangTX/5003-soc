@@ -21,7 +21,14 @@ def plot_training_curve(log_path: str | Path, out_path: str | Path):
     plt.close()
 
 
-def plot_prediction_scatter(y_true, y_pred, out_path: str | Path, title: str = "Prediction Scatter"):
+def plot_prediction_scatter(
+    y_true,
+    y_pred,
+    out_path: str | Path,
+    title: str = "Prediction Scatter",
+    xlabel: str = "True SOC",
+    ylabel: str = "Predicted SOC",
+):
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
     low = float(min(y_true.min(), y_pred.min()))
@@ -29,8 +36,8 @@ def plot_prediction_scatter(y_true, y_pred, out_path: str | Path, title: str = "
     plt.figure(figsize=(6, 6))
     plt.scatter(y_true, y_pred, s=10, alpha=0.5)
     plt.plot([low, high], [low, high], "k--", linewidth=1)
-    plt.xlabel("True SOC")
-    plt.ylabel("Predicted SOC")
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
     plt.title(title)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -57,3 +64,4 @@ def plot_attention_heatmap(freqs, weights, out_path: str | Path, title: str = "F
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
     plt.close()
+

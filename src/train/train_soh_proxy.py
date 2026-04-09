@@ -135,7 +135,14 @@ def main(args):
 
         pd.DataFrame(log_rows).to_csv(run_dir / "training_log.csv", index=False)
         pd.DataFrame({"y_true": y_true, "y_pred": y_pred}).to_csv(run_dir / "val_predictions.csv", index=False)
-        plot_prediction_scatter(y_true, y_pred, run_dir / "val_scatter.png", title="Validation SOH Proxy Scatter")
+        plot_prediction_scatter(
+            y_true,
+            y_pred,
+            run_dir / "val_scatter.png",
+            title="Validation SOH Proxy Scatter",
+            xlabel="True Cycle",
+            ylabel="Predicted Cycle",
+        )
         if attention is not None:
             pd.DataFrame({"freq": train_bundle.freqs, "weight": attention}).to_csv(run_dir / "attention.csv", index=False)
             plot_attention_heatmap(train_bundle.freqs, attention, run_dir / "attention_heatmap.png")
@@ -207,3 +214,4 @@ def build_arg_parser():
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
+
