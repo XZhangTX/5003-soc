@@ -12,9 +12,6 @@ from src.data.discovery import discover_s11_records
 from src.utils import ensure_dir, save_json, set_seed, timestamp
 
 
-META_COLUMNS = {"Cycle", "DC", "SOC"}
-
-
 def _split_records(records, test_ratio: float, seed: int):
     groups = np.arange(len(records))
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_ratio, random_state=seed)
@@ -30,14 +27,48 @@ def _frequency_columns(df: pd.DataFrame) -> list[str]:
 
 
 
-def _pick_representative_record(records):
+def _read_mag(record):
+    return pd.read_csv(record.mag_path)
+
+
+
+def _read_pha(record):
+    if record.pha_path is None:
+        return None
+    return pd.read_csv(record.pha_path)
+
+
+
+def _select_freq_cols(df: pd.DataFrame, freq_min=None, freq_max=None):
+    cols = []
+    freqs = []
+    for col in _frequency_columns(df):
+        freq = float(col.replace("F", ""))
+        if freq_min is not None and freq < float(freq_min):
+            continue
+        if freq_max is not None and freq > float(freq_max):
+            continue
+        cols.append(col)
+        freqs.append(freq)
+    return cols, np.asarray(freqs, dtype=np.float32)
+
+
+
+def _apply_amp_mode(values: np.ndarray, amp_mode: str):
+    if amp_mode == "db_to_linear":
+        return np.power(10.0, values / 20.0)
+    return values
+
+
+
+def _pick_record_most_cycles(records):
     best = None
     best_cycles = -1
     for record in records:
-        mag_df = pd.read_csv(record.mag_path)
+        mag_df = _read_mag(record)
         if "Cycle" not in mag_df.columns:
             continue
-        n_cycles = mag_df["Cycle"].nunique()
+        n_cycles = int(mag_df["Cycle"].nunique())
         if n_cycles > best_cycles:
             best = record
             best_cycles = n_cycles
@@ -45,69 +76,133 @@ def _pick_representative_record(records):
 
 
 
-def _plot_label_distributions(soc_train, soc_val, soh_train, soh_val, out_path: Path):
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-
-    bins_soc = np.linspace(0.0, 100.0, 21)
-    axes[0].hist(soc_train, bins=bins_soc, alpha=0.65, label="Train", color="#1f77b4")
-    axes[0].hist(soc_val, bins=bins_soc, alpha=0.55, label="Val", color="#ff7f0e")
-    axes[0].set_title("SOC Distribution")
-    axes[0].set_xlabel("SOC (%)")
-    axes[0].set_ylabel("Count")
-    axes[0].grid(True, alpha=0.25)
-    axes[0].legend()
-
-    bins_soh = np.linspace(0.0, 100.0, 21)
-    axes[1].hist(soh_train, bins=bins_soh, alpha=0.65, label="Train", color="#1f77b4")
-    axes[1].hist(soh_val, bins=bins_soh, alpha=0.55, label="Val", color="#ff7f0e")
-    axes[1].set_title("SOH Proxy Distribution")
-    axes[1].set_xlabel("SOH Proxy")
-    axes[1].set_ylabel("Count")
-    axes[1].grid(True, alpha=0.25)
-    axes[1].legend()
-
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=180)
-    plt.close(fig)
+def _pick_records_same_soc(records, target_soc=50.0, top_k=3):
+    scored = []
+    for record in records:
+        mag_df = _read_mag(record)
+        if "SOC" not in mag_df.columns:
+            continue
+        median_soc = float(mag_df["SOC"].astype(np.float32).median())
+        scored.append((abs(median_soc - target_soc), record, median_soc))
+    scored.sort(key=lambda item: item[0])
+    return [(record, soc) for _, record, soc in scored[:top_k]]
 
 
 
-def _plot_representative_spectra(record, out_path: Path, include_phase: bool):
-    mag_df = pd.read_csv(record.mag_path)
-    freq_cols = _frequency_columns(mag_df)
-    freqs = np.array([float(col.replace("F", "")) for col in freq_cols], dtype=np.float32)
+def _plot_same_record_different_cycles(record, out_path: Path, freq_min=None, freq_max=None, include_phase=False):
+    mag_df = _read_mag(record)
+    freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
     cycles = np.sort(mag_df["Cycle"].astype(np.float32).unique())
-    if len(cycles) == 0:
+    if len(cycles) == 0 or len(freq_cols) == 0:
         return
-    selected_cycles = [cycles[0], cycles[len(cycles) // 2], cycles[-1]]
-    selected_cycles = list(dict.fromkeys(float(c) for c in selected_cycles))
+    chosen = [cycles[0], cycles[len(cycles) // 2], cycles[-1]]
+    chosen = list(dict.fromkeys(float(c) for c in chosen))
 
     nrows = 2 if include_phase and record.pha_path is not None else 1
     fig, axes = plt.subplots(nrows, 1, figsize=(10, 4 + 2.5 * (nrows - 1)), sharex=True)
     if nrows == 1:
         axes = [axes]
 
-    for cycle in selected_cycles:
+    for cycle in chosen:
         mask = mag_df["Cycle"].astype(np.float32).to_numpy() == cycle
-        mag_curve = mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
-        axes[0].plot(freqs, mag_curve, linewidth=1.6, label=f"Cycle {int(cycle)}")
-
-    axes[0].set_title(f"Representative Magnitude Spectra: {record.record_id}")
+        curve = mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+        axes[0].plot(freqs, curve, linewidth=1.6, label=f"Cycle {int(cycle)}")
+    axes[0].set_title(f"Same Record, Different Cycles: {record.record_id}")
     axes[0].set_ylabel("Magnitude (dB)")
     axes[0].grid(True, alpha=0.25)
     axes[0].legend()
 
     if nrows == 2:
-        pha_df = pd.read_csv(record.pha_path)
-        for cycle in selected_cycles:
+        pha_df = _read_pha(record)
+        for cycle in chosen:
             mask = pha_df["Cycle"].astype(np.float32).to_numpy() == cycle
-            pha_curve = pha_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
-            axes[1].plot(freqs, pha_curve, linewidth=1.6, label=f"Cycle {int(cycle)}")
-        axes[1].set_title(f"Representative Phase Spectra: {record.record_id}")
+            curve = pha_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+            axes[1].plot(freqs, curve, linewidth=1.6, label=f"Cycle {int(cycle)}")
         axes[1].set_ylabel("Phase (deg)")
         axes[1].grid(True, alpha=0.25)
+        axes[1].set_title("Phase Curves")
 
     axes[-1].set_xlabel("Frequency")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+
+def _plot_different_records_same_soc(records_with_soc, out_path: Path, freq_min=None, freq_max=None):
+    if not records_with_soc:
+        return
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    for record, median_soc in records_with_soc:
+        mag_df = _read_mag(record)
+        freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
+        soc_values = mag_df["SOC"].astype(np.float32).to_numpy()
+        target = float(median_soc)
+        nearest = float(mag_df.iloc[np.argmin(np.abs(soc_values - target))]["SOC"])
+        mask = np.isclose(soc_values, nearest)
+        curve = mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+        ax.plot(freqs, curve, linewidth=1.6, label=f"{record.record_id} | SOC~{nearest:.1f}")
+    ax.set_title("Different Records at Similar SOC")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Magnitude (dB)")
+    ax.grid(True, alpha=0.25)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+
+def _plot_amp_mode_comparison(record, out_path: Path, freq_min=None, freq_max=None):
+    mag_df = _read_mag(record)
+    freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
+    cycles = np.sort(mag_df["Cycle"].astype(np.float32).unique())
+    if len(cycles) == 0 or len(freq_cols) == 0:
+        return
+    cycle = float(cycles[len(cycles) // 2])
+    mask = mag_df["Cycle"].astype(np.float32).to_numpy() == cycle
+    raw_db = mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+    db_to_linear = _apply_amp_mode(raw_db.copy(), "db_to_linear")
+    zscore = (raw_db - raw_db.mean()) / (raw_db.std() + 1e-6)
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharex=True)
+    curves = [(raw_db, "raw_db"), (db_to_linear, "db_to_linear"), (zscore, "zscore")]
+    for ax, (curve, title) in zip(axes, curves):
+        ax.plot(freqs, curve, linewidth=1.5)
+        ax.set_title(title)
+        ax.set_xlabel("Frequency")
+        ax.grid(True, alpha=0.25)
+    axes[0].set_ylabel("Value")
+    fig.suptitle(f"Preprocessing Comparison on {record.record_id} (Cycle {int(cycle)})")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+
+def _plot_single_distribution(values, title, xlabel, out_path: Path):
+    fig, ax = plt.subplots(figsize=(5.5, 4))
+    ax.hist(values, bins=np.linspace(0.0, 100.0, 21), color="#1f77b4", alpha=0.8)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Count")
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+
+def _plot_split_distribution(train_values, val_values, title, xlabel, out_path: Path):
+    fig, ax = plt.subplots(figsize=(5.5, 4))
+    bins = np.linspace(0.0, 100.0, 21)
+    ax.hist(train_values, bins=bins, alpha=0.65, label="Train", color="#1f77b4")
+    ax.hist(val_values, bins=bins, alpha=0.55, label="Val", color="#ff7f0e")
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Count")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
     fig.tight_layout()
     fig.savefig(out_path, dpi=180)
     plt.close(fig)
@@ -164,13 +259,68 @@ def main(args):
     )
 
     out_dir = ensure_dir(Path(args.output_root) / "dataset_report" / (args.tag or timestamp()))
+    figures_dir = ensure_dir(out_dir / "figures")
 
-    stats_rows = [
-        {"split": "all", "records": len(records), "soc_samples": len(soc_train.x) + len(soc_val.x), "soh_samples": len(soh_train.x) + len(soh_val.x), "n_freq": len(soc_train.freqs), "feature_dim": soc_train.feature_dim, "include_phase": args.include_phase, "amp_mode": args.amp_mode, "data_mode": args.data_mode},
-        {"split": "train", "records": len(train_records), "soc_samples": len(soc_train.x), "soh_samples": len(soh_train.x), "soc_min": float((soc_train.y * 100.0).min()), "soc_max": float((soc_train.y * 100.0).max()), "soh_min": float(inverse_cycle_scale(soh_train.y, soh_train.label_scale).min()), "soh_max": float(inverse_cycle_scale(soh_train.y, soh_train.label_scale).max())},
-        {"split": "val", "records": len(val_records), "soc_samples": len(soc_val.x), "soh_samples": len(soh_val.x), "soc_min": float((soc_val.y * 100.0).min()), "soc_max": float((soc_val.y * 100.0).max()), "soh_min": float(inverse_cycle_scale(soh_val.y, soh_train.label_scale).min()), "soh_max": float(inverse_cycle_scale(soh_val.y, soh_train.label_scale).max())},
+    soc_train_pct = soc_train.y * 100.0
+    soc_val_pct = soc_val.y * 100.0
+    soh_train_pct = inverse_cycle_scale(soh_train.y, soh_train.label_scale)
+    soh_val_pct = inverse_cycle_scale(soh_val.y, soh_train.label_scale)
+
+    cycle_counts = []
+    for record in records:
+        mag_df = _read_mag(record)
+        cycle_counts.append(int(mag_df["Cycle"].nunique()) if "Cycle" in mag_df.columns else 0)
+
+    summary_rows = [
+        {
+            "split": "all",
+            "record_count": len(records),
+            "train_record_count": len(train_records),
+            "val_record_count": len(val_records),
+            "soc_sample_count": int(len(soc_train.x) + len(soc_val.x)),
+            "soh_sample_count": int(len(soh_train.x) + len(soh_val.x)),
+            "n_freq": int(len(soc_train.freqs)),
+            "feature_dim": int(soc_train.feature_dim),
+            "mean_cycles_per_record": float(np.mean(cycle_counts)),
+            "min_cycles_per_record": int(np.min(cycle_counts)),
+            "max_cycles_per_record": int(np.max(cycle_counts)),
+            "has_phase_required": bool(args.include_phase),
+            "amp_mode": args.amp_mode,
+            "data_mode": args.data_mode,
+        },
+        {
+            "split": "train",
+            "record_count": len(train_records),
+            "soc_sample_count": int(len(soc_train.x)),
+            "soh_sample_count": int(len(soh_train.x)),
+            "soc_min": float(soc_train_pct.min()),
+            "soc_max": float(soc_train_pct.max()),
+            "soh_min": float(soh_train_pct.min()),
+            "soh_max": float(soh_train_pct.max()),
+        },
+        {
+            "split": "val",
+            "record_count": len(val_records),
+            "soc_sample_count": int(len(soc_val.x)),
+            "soh_sample_count": int(len(soh_val.x)),
+            "soc_min": float(soc_val_pct.min()),
+            "soc_max": float(soc_val_pct.max()),
+            "soh_min": float(soh_val_pct.min()),
+            "soh_max": float(soh_val_pct.max()),
+        },
     ]
-    pd.DataFrame(stats_rows).to_csv(out_dir / "summary.csv", index=False)
+    pd.DataFrame(summary_rows).to_csv(out_dir / "summary.csv", index=False)
+
+    pd.DataFrame(
+        {
+            "record_id": [record.record_id for record in records],
+            "day": [record.day for record in records],
+            "series_name": [record.series_name for record in records],
+            "has_phase": [record.has_phase for record in records],
+            "cycle_count": cycle_counts,
+            "split": ["train" if record.record_id in {r.record_id for r in train_records} else "val" for record in records],
+        }
+    ).to_csv(out_dir / "record_summary.csv", index=False)
 
     save_json(
         out_dir / "record_lists.json",
@@ -181,17 +331,18 @@ def main(args):
         },
     )
 
-    _plot_label_distributions(
-        soc_train.y * 100.0,
-        soc_val.y * 100.0,
-        inverse_cycle_scale(soh_train.y, soh_train.label_scale),
-        inverse_cycle_scale(soh_val.y, soh_train.label_scale),
-        out_dir / "split_distribution.png",
-    )
+    _plot_single_distribution(soc_train_pct.tolist() + soc_val_pct.tolist(), "SOC Distribution", "SOC (%)", figures_dir / "soc_distribution.png")
+    _plot_single_distribution(soh_train_pct.tolist() + soh_val_pct.tolist(), "SOH Proxy Distribution", "SOH Proxy", figures_dir / "soh_distribution.png")
+    _plot_split_distribution(soc_train_pct, soc_val_pct, "SOC Train/Val Split", "SOC (%)", figures_dir / "soc_split_distribution.png")
+    _plot_split_distribution(soh_train_pct, soh_val_pct, "SOH Proxy Train/Val Split", "SOH Proxy", figures_dir / "soh_split_distribution.png")
 
-    rep_record = _pick_representative_record(records)
+    rep_record = _pick_record_most_cycles(records)
     if rep_record is not None:
-        _plot_representative_spectra(rep_record, out_dir / "representative_spectra.png", include_phase=args.include_phase)
+        _plot_same_record_different_cycles(rep_record, figures_dir / "same_record_different_cycles.png", freq_min=args.freq_min, freq_max=args.freq_max, include_phase=args.include_phase)
+        _plot_amp_mode_comparison(rep_record, figures_dir / "amp_mode_comparison.png", freq_min=args.freq_min, freq_max=args.freq_max)
+
+    same_soc_records = _pick_records_same_soc(records, target_soc=args.reference_soc, top_k=3)
+    _plot_different_records_same_soc(same_soc_records, figures_dir / "different_records_same_soc.png", freq_min=args.freq_min, freq_max=args.freq_max)
 
     print(f"Saved dataset report artifacts to {out_dir}")
 
@@ -208,6 +359,7 @@ if __name__ == "__main__":
     parser.add_argument("--amp-mode", type=str, default="zscore", choices=["db_to_linear", "raw_db", "zscore"])
     parser.add_argument("--freq-min", type=float, default=None)
     parser.add_argument("--freq-max", type=float, default=None)
+    parser.add_argument("--reference-soc", type=float, default=50.0)
     parser.add_argument("--test-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     main(parser.parse_args())
