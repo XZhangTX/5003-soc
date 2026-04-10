@@ -12,6 +12,7 @@ from src.data.discovery import discover_s11_records
 from src.utils import ensure_dir, save_json, set_seed, timestamp
 
 
+
 def _split_records(records, test_ratio: float, seed: int):
     groups = np.arange(len(records))
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_ratio, random_state=seed)
@@ -61,6 +62,12 @@ def _apply_amp_mode(values: np.ndarray, amp_mode: str):
 
 
 
+def _unwrap_phase_deg(phase_deg: np.ndarray) -> np.ndarray:
+    phase_rad = np.deg2rad(np.asarray(phase_deg, dtype=np.float32))
+    return np.rad2deg(np.unwrap(phase_rad))
+
+
+
 def _pick_record_most_cycles(records):
     best = None
     best_cycles = -1
@@ -76,10 +83,12 @@ def _pick_record_most_cycles(records):
 
 
 
-def _pick_record_with_soc_coverage(records, target_socs=(20.0, 50.0, 80.0, 100.0)):
+def _pick_record_with_soc_coverage(records, target_socs=(20.0, 50.0, 80.0, 100.0), require_phase=False):
     best = None
     best_score = float("inf")
     for record in records:
+        if require_phase and record.pha_path is None:
+            continue
         mag_df = _read_mag(record)
         if "SOC" not in mag_df.columns:
             continue
@@ -109,46 +118,6 @@ def _pick_records_same_soc(records, target_soc=50.0, top_k=3):
 
 
 
-def _plot_same_record_different_cycles(record, out_path: Path, freq_min=None, freq_max=None, include_phase=False):
-    mag_df = _read_mag(record)
-    freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
-    cycles = np.sort(mag_df["Cycle"].astype(np.float32).unique())
-    if len(cycles) == 0 or len(freq_cols) == 0:
-        return
-    chosen = [cycles[0], cycles[len(cycles) // 2], cycles[-1]]
-    chosen = list(dict.fromkeys(float(c) for c in chosen))
-
-    nrows = 2 if include_phase and record.pha_path is not None else 1
-    fig, axes = plt.subplots(nrows, 1, figsize=(10, 4 + 2.5 * (nrows - 1)), sharex=True)
-    if nrows == 1:
-        axes = [axes]
-
-    for cycle in chosen:
-        mask = mag_df["Cycle"].astype(np.float32).to_numpy() == cycle
-        curve = mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
-        axes[0].plot(freqs, curve, linewidth=1.6, label=f"Cycle {int(cycle)}")
-    axes[0].set_title(f"Same Record, Different Cycles: {record.record_id}")
-    axes[0].set_ylabel("Magnitude (dB)")
-    axes[0].grid(True, alpha=0.25)
-    axes[0].legend()
-
-    if nrows == 2:
-        pha_df = _read_pha(record)
-        for cycle in chosen:
-            mask = pha_df["Cycle"].astype(np.float32).to_numpy() == cycle
-            curve = pha_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
-            axes[1].plot(freqs, curve, linewidth=1.6, label=f"Cycle {int(cycle)}")
-        axes[1].set_ylabel("Phase (deg)")
-        axes[1].grid(True, alpha=0.25)
-        axes[1].set_title("Phase Curves")
-
-    axes[-1].set_xlabel("Frequency")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=180)
-    plt.close(fig)
-
-
-
 def _plot_same_record_different_soc(record, out_path: Path, freq_min=None, freq_max=None, target_socs=(20.0, 50.0, 80.0, 100.0)):
     mag_df = _read_mag(record)
     freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
@@ -169,6 +138,37 @@ def _plot_same_record_different_soc(record, out_path: Path, freq_min=None, freq_
     ax.set_title(f"Same Record, Different SOC: {record.record_id}")
     ax.set_xlabel("Frequency")
     ax.set_ylabel("Magnitude (dB)")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+
+def _plot_same_record_different_phase_soc(record, out_path: Path, freq_min=None, freq_max=None, target_socs=(20.0, 50.0, 80.0, 100.0)):
+    pha_df = _read_pha(record)
+    if pha_df is None or "SOC" not in pha_df.columns:
+        return
+    freq_cols, freqs = _select_freq_cols(pha_df, freq_min=freq_min, freq_max=freq_max)
+    if len(freq_cols) == 0:
+        return
+    soc_values = pha_df["SOC"].astype(np.float32).to_numpy()
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    used = []
+    for target in target_socs:
+        nearest = float(soc_values[np.argmin(np.abs(soc_values - target))])
+        if any(abs(nearest - seen) < 1e-6 for seen in used):
+            continue
+        used.append(nearest)
+        mask = np.isclose(soc_values, nearest)
+        curve = pha_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+        curve = _unwrap_phase_deg(curve)
+        ax.plot(freqs, curve, linewidth=1.6, label=f"SOC {nearest:.1f}%")
+    ax.set_title(f"Same Record, Different SOC Phase: {record.record_id}")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Unwrapped Phase (deg)")
     ax.grid(True, alpha=0.25)
     ax.legend()
     fig.tight_layout()
@@ -228,6 +228,65 @@ def _plot_amp_mode_comparison(record, out_path: Path, freq_min=None, freq_max=No
 
 
 
+def _plot_phase_wrap_vs_unwrap(record, out_path: Path, freq_min=None, freq_max=None):
+    pha_df = _read_pha(record)
+    if pha_df is None:
+        return
+    freq_cols, freqs = _select_freq_cols(pha_df, freq_min=freq_min, freq_max=freq_max)
+    if len(freq_cols) == 0:
+        return
+    curve = pha_df.loc[:, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+    unwrapped = _unwrap_phase_deg(curve)
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    ax.plot(freqs, curve, linewidth=1.2, label="Wrapped Phase")
+    ax.plot(freqs, unwrapped, linewidth=1.6, label="Unwrapped Phase")
+    ax.set_title(f"Wrapped vs Unwrapped Phase: {record.record_id}")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Phase (deg)")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+
+def _plot_complex_plane_by_soc(record, out_path: Path, freq_min=None, freq_max=None, target_socs=(20.0, 50.0, 80.0, 100.0)):
+    mag_df = _read_mag(record)
+    pha_df = _read_pha(record)
+    if pha_df is None or "SOC" not in mag_df.columns:
+        return
+    freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
+    if len(freq_cols) == 0:
+        return
+    soc_values = mag_df["SOC"].astype(np.float32).to_numpy()
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    used = []
+    for target in target_socs:
+        nearest = float(soc_values[np.argmin(np.abs(soc_values - target))])
+        if any(abs(nearest - seen) < 1e-6 for seen in used):
+            continue
+        used.append(nearest)
+        mask = np.isclose(soc_values, nearest)
+        mag_curve = _apply_amp_mode(mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0), "db_to_linear")
+        pha_curve = pha_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+        pha_rad = np.deg2rad(_unwrap_phase_deg(pha_curve))
+        real = mag_curve * np.cos(pha_rad)
+        imag = mag_curve * np.sin(pha_rad)
+        ax.plot(real, imag, linewidth=1.5, label=f"SOC {nearest:.1f}%")
+    ax.set_title(f"Complex-Plane S11 Trajectories: {record.record_id}")
+    ax.set_xlabel("Real")
+    ax.set_ylabel("Imag")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+
 def _plot_single_distribution(values, title, xlabel, out_path: Path):
     fig, ax = plt.subplots(figsize=(5.5, 4))
     ax.hist(values, bins=np.linspace(0.0, 100.0, 21), color="#1f77b4", alpha=0.8, edgecolor="white", linewidth=0.6)
@@ -259,7 +318,7 @@ def _plot_split_distribution(train_values, val_values, title, xlabel, out_path: 
 
 def _extract_resonance_features(values: np.ndarray, freqs: np.ndarray):
     min_idx = int(np.argmin(values))
-    return float(freqs[min_idx]), float(values[min_idx])
+    return float(freqs[min_idx]), float(values[min_idx]), min_idx
 
 
 
@@ -276,7 +335,7 @@ def _collect_soc_resonance_points(records, freq_min=None, freq_max=None, dc_mode
         rows = mag_df.loc[mask, ["SOC", *freq_cols]]
         for _, row in rows.iterrows():
             vals = row[freq_cols].astype(np.float32).to_numpy()
-            rf, mm = _extract_resonance_features(vals, freqs)
+            rf, mm, _ = _extract_resonance_features(vals, freqs)
             socs.append(float(row["SOC"]))
             res_freqs.append(rf)
             min_mags.append(mm)
@@ -298,7 +357,7 @@ def _collect_soh_resonance_points(records, freq_min=None, freq_max=None, dc_mode
         if not mask.any():
             continue
         curve = mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
-        rf, mm = _extract_resonance_features(curve, freqs)
+        rf, mm, _ = _extract_resonance_features(curve, freqs)
         cycle = float(mag_df.loc[mask, "Cycle"].astype(np.float32).iloc[0])
         curve_features.append((rf, mm))
         cycles.append(cycle)
@@ -310,6 +369,54 @@ def _collect_soh_resonance_points(records, freq_min=None, freq_max=None, dc_mode
     soh_proxy = (cycles - cmin) / max(cmax - cmin, 1.0) * 100.0
     features = np.asarray(curve_features, dtype=np.float32)
     return soh_proxy, features[:, 0], features[:, 1]
+
+
+
+def _collect_phase_slope_points(records, target="soc", freq_min=None, freq_max=None, dc_mode="all"):
+    targets, slopes = [], []
+    cycles = []
+    curve_cache = []
+    for record in records:
+        mag_df = _read_mag(record)
+        pha_df = _read_pha(record)
+        if pha_df is None:
+            continue
+        freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
+        if len(freq_cols) == 0:
+            continue
+        mask = np.ones(len(mag_df), dtype=bool)
+        if dc_mode in {"C", "D"} and "DC" in mag_df.columns:
+            mask &= mag_df["DC"].astype(str).str.upper().eq(dc_mode).to_numpy()
+        if not mask.any():
+            continue
+        mag_rows = mag_df.loc[mask, ["SOC", "Cycle", *freq_cols]]
+        pha_rows = pha_df.loc[mask, ["SOC", "Cycle", *freq_cols]]
+        if target == "soc":
+            for idx in range(len(mag_rows)):
+                mag_curve = mag_rows.iloc[idx][freq_cols].astype(np.float32).to_numpy()
+                pha_curve = pha_rows.iloc[idx][freq_cols].astype(np.float32).to_numpy()
+                _, _, min_idx = _extract_resonance_features(mag_curve, freqs)
+                unwrapped = _unwrap_phase_deg(pha_curve)
+                grad = np.gradient(unwrapped, freqs)
+                slopes.append(float(grad[min_idx]))
+                targets.append(float(mag_rows.iloc[idx]["SOC"]))
+        else:
+            mag_curve = mag_rows[freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+            pha_curve = pha_rows[freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+            _, _, min_idx = _extract_resonance_features(mag_curve, freqs)
+            unwrapped = _unwrap_phase_deg(pha_curve)
+            grad = np.gradient(unwrapped, freqs)
+            slopes.append(float(grad[min_idx]))
+            cycles.append(float(mag_rows["Cycle"].astype(np.float32).iloc[0]))
+    if target == "soc":
+        return np.asarray(targets), np.asarray(slopes)
+    cycles = np.asarray(cycles, dtype=np.float32)
+    if len(cycles) == 0:
+        return np.asarray([]), np.asarray([])
+    cmin = float(cycles.min())
+    cmax = float(cycles.max())
+    soh_proxy = (cycles - cmin) / max(cmax - cmin, 1.0) * 100.0
+    return soh_proxy, np.asarray(slopes)
 
 
 
@@ -496,10 +603,18 @@ def main(args):
     rep_record = _pick_record_most_cycles(records)
     if rep_record is not None:
         _plot_amp_mode_comparison(rep_record, figures_dir / "amp_mode_comparison.png", freq_min=args.freq_min, freq_max=args.freq_max)
+        if args.include_phase and rep_record.pha_path is not None:
+            _plot_phase_wrap_vs_unwrap(rep_record, figures_dir / "phase_wrap_vs_unwrap.png", freq_min=args.freq_min, freq_max=args.freq_max)
 
-    soc_record = _pick_record_with_soc_coverage(records)
+    soc_record = _pick_record_with_soc_coverage(records, require_phase=False)
     if soc_record is not None:
         _plot_same_record_different_soc(soc_record, figures_dir / "same_record_different_soc.png", freq_min=args.freq_min, freq_max=args.freq_max)
+
+    if args.include_phase:
+        phase_record = _pick_record_with_soc_coverage(records, require_phase=True)
+        if phase_record is not None:
+            _plot_same_record_different_phase_soc(phase_record, figures_dir / "same_record_different_phase_soc.png", freq_min=args.freq_min, freq_max=args.freq_max)
+            _plot_complex_plane_by_soc(phase_record, figures_dir / "complex_plane_by_soc.png", freq_min=args.freq_min, freq_max=args.freq_max)
 
     same_soc_records = _pick_records_same_soc(records, target_soc=args.reference_soc, top_k=3)
     _plot_different_records_same_soc(same_soc_records, figures_dir / "different_records_same_soc.png", freq_min=args.freq_min, freq_max=args.freq_max)
@@ -511,6 +626,12 @@ def main(args):
     soh_targets, soh_res_freqs, soh_min_mags = _collect_soh_resonance_points(records, freq_min=args.freq_min, freq_max=args.freq_max, dc_mode=args.dc_mode)
     _plot_feature_vs_target(soh_res_freqs, soh_targets, "Resonance Frequency", "SOH Proxy", figures_dir / "resonance_frequency_vs_soh.png")
     _plot_feature_vs_target(soh_min_mags, soh_targets, "Minimum Magnitude (dB)", "SOH Proxy", figures_dir / "minimum_magnitude_vs_soh.png")
+
+    if args.include_phase:
+        soc_phase_targets, soc_phase_slopes = _collect_phase_slope_points(records, target="soc", freq_min=args.freq_min, freq_max=args.freq_max, dc_mode=args.dc_mode)
+        _plot_feature_vs_target(soc_phase_slopes, soc_phase_targets, "Phase Slope at Resonance", "SOC (%)", figures_dir / "phase_slope_vs_soc.png")
+        soh_phase_targets, soh_phase_slopes = _collect_phase_slope_points(records, target="soh", freq_min=args.freq_min, freq_max=args.freq_max, dc_mode=args.dc_mode)
+        _plot_feature_vs_target(soh_phase_slopes, soh_phase_targets, "Phase Slope at Resonance", "SOH Proxy", figures_dir / "phase_slope_vs_soh.png")
 
     _plot_soc_soh_joint_distribution(records, figures_dir / "soc_soh_joint_distribution.png", dc_mode=args.dc_mode)
 
