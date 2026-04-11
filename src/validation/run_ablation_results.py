@@ -29,6 +29,10 @@ ABLATION_STUDIES = {
             {"variant": "mag_only", "amp_mode": "zscore", "model_arch": "conv_transformer", "include_phase": False},
             {"variant": "mag_phase", "amp_mode": "zscore", "model_arch": "conv_transformer", "include_phase": True},
         ],
+        "loss": [
+            {"variant": "hybrid", "amp_mode": "zscore", "model_arch": "conv_transformer", "loss_type": "hybrid"},
+            {"variant": "smooth_l1", "amp_mode": "zscore", "model_arch": "conv_transformer", "loss_type": "smooth_l1"},
+        ],
     },
     "soh": {
         "preprocess": [
@@ -257,4 +261,5 @@ def main(args):
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
+
 

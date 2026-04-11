@@ -80,13 +80,13 @@ def _write_markdown(summary_df: pd.DataFrame, report_dir: Path):
             continue
         lines.append(f"## {task}")
         lines.append("")
-        lines.append("| Model | RMSE (mean¡Àstd) | MAE (mean¡Àstd) | R2 (mean¡Àstd) | Seeds |")
+        lines.append("| Model | RMSE (mean+/-std) | MAE (mean+/-std) | R2 (mean+/-std) | Seeds |")
         lines.append("| --- | ---: | ---: | ---: | ---: |")
         for _, row in task_df.iterrows():
             lines.append(
-                f"| {row['model']} | {row['rmse_mean']:.4f} ¡À {row['rmse_std']:.4f} | "
-                f"{row['mae_mean']:.4f} ¡À {row['mae_std']:.4f} | "
-                f"{row['r2_mean']:.4f} ¡À {row['r2_std']:.4f} | {int(row['n_seeds'])} |"
+                f"| {row['model']} | {row['rmse_mean']:.4f} +/- {row['rmse_std']:.4f} | "
+                f"{row['mae_mean']:.4f} +/- {row['mae_std']:.4f} | "
+                f"{row['r2_mean']:.4f} +/- {row['r2_std']:.4f} | {int(row['n_seeds'])} |"
             )
         lines.append("")
     (report_dir / "multi_seed_summary.md").write_text("\n".join(lines), encoding="utf-8")
@@ -157,3 +157,4 @@ def main(args):
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
+
