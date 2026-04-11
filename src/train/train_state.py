@@ -215,7 +215,16 @@ def main(args):
         optimizer,
         T_max=cosine_epochs,
     )
-    loss_fn = nn.SmoothL1Loss(beta=args.smooth_l1_beta)
+    if args.loss_type == "smooth_l1":
+        loss_fn = nn.SmoothL1Loss(beta=args.smooth_l1_beta)
+    elif args.loss_type == "hybrid":
+        loss_l1 = nn.L1Loss()
+        loss_l2 = nn.MSELoss()
+
+        def loss_fn(pred, target):
+            return 0.5 * loss_l1(pred, target) + 0.5 * loss_l2(pred, target)
+    else:
+        raise ValueError(f"Unsupported loss_type={args.loss_type}")
     scheduler = SequentialLR(
         optimizer,
         schedulers=[warmup_scheduler, cosine_scheduler],
@@ -327,6 +336,7 @@ def build_arg_parser(task_default=None, include_task=True):
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--warmup-epochs", type=int, default=5)
     parser.add_argument("--warmup-start-factor", type=float, default=0.1)
+    parser.add_argument("--loss-type", type=str, default="smooth_l1", choices=["smooth_l1", "hybrid"])
     parser.add_argument("--smooth-l1-beta", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=1e-2)
     parser.add_argument("--grad-clip", type=float, default=1.0)
@@ -346,3 +356,6 @@ def build_arg_parser(task_default=None, include_task=True):
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
+
+
+
