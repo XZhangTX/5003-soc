@@ -12,6 +12,7 @@ def _with_seed(experiments, seed: int):
     for exp in experiments:
         cloned = {
             "task": exp["task"],
+            "dc_mode": exp.get("dc_mode", "all"),
             "model": exp["model"],
             "model_key": exp["model_key"],
             "kind": exp["kind"],
@@ -42,6 +43,7 @@ def _load_seed_rows(experiments, output_root: Path, seed: int):
             {
                 "seed": seed,
                 "task": exp["task"].upper(),
+                "dc_mode": exp.get("dc_mode", "all"),
                 "model": exp["model"],
                 "rmse": metrics["rmse"],
                 "mae": metrics["mae"],
@@ -54,7 +56,7 @@ def _load_seed_rows(experiments, output_root: Path, seed: int):
 
 def _aggregate(seed_df: pd.DataFrame):
     grouped = (
-        seed_df.groupby(["task", "model"], as_index=False)
+        seed_df.groupby(["task", "dc_mode", "model"], as_index=False)
         .agg(
             rmse_mean=("rmse", "mean"),
             rmse_std=("rmse", "std"),
@@ -64,7 +66,7 @@ def _aggregate(seed_df: pd.DataFrame):
             r2_std=("r2", "std"),
             n_seeds=("seed", "nunique"),
         )
-        .sort_values(["task", "rmse_mean", "model"])
+        .sort_values(["task", "dc_mode", "rmse_mean", "model"])
         .reset_index(drop=True)
     )
     for col in ["rmse_std", "mae_std", "r2_std"]:
@@ -80,15 +82,21 @@ def _write_markdown(summary_df: pd.DataFrame, report_dir: Path):
             continue
         lines.append(f"## {task}")
         lines.append("")
-        lines.append("| Model | RMSE (mean+/-std) | MAE (mean+/-std) | R2 (mean+/-std) | Seeds |")
-        lines.append("| --- | ---: | ---: | ---: | ---: |")
-        for _, row in task_df.iterrows():
-            lines.append(
-                f"| {row['model']} | {row['rmse_mean']:.4f} +/- {row['rmse_std']:.4f} | "
-                f"{row['mae_mean']:.4f} +/- {row['mae_std']:.4f} | "
-                f"{row['r2_mean']:.4f} +/- {row['r2_std']:.4f} | {int(row['n_seeds'])} |"
-            )
-        lines.append("")
+        for dc_mode in ["all", "D", "C"]:
+            dc_df = task_df[task_df["dc_mode"] == dc_mode]
+            if dc_df.empty:
+                continue
+            lines.append(f"### dc-mode = {dc_mode}")
+            lines.append("")
+            lines.append("| Model | RMSE (mean+/-std) | MAE (mean+/-std) | R2 (mean+/-std) | Seeds |")
+            lines.append("| --- | ---: | ---: | ---: | ---: |")
+            for _, row in dc_df.iterrows():
+                lines.append(
+                    f"| {row['model']} | {row['rmse_mean']:.4f} +/- {row['rmse_std']:.4f} | "
+                    f"{row['mae_mean']:.4f} +/- {row['mae_std']:.4f} | "
+                    f"{row['r2_mean']:.4f} +/- {row['r2_std']:.4f} | {int(row['n_seeds'])} |"
+                )
+            lines.append("")
     (report_dir / "multi_seed_summary.md").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -102,6 +110,7 @@ def build_arg_parser():
     parser.add_argument("--seeds", nargs="+", type=int, default=[42, 52, 62, 72, 82])
     parser.add_argument("--data-mode", type=str, default="raw", choices=["all", "raw", "socip0p1", "socip0p5", "socip1p0"])
     parser.add_argument("--dc-mode", type=str, default="all", choices=["all", "D", "C"])
+    parser.add_argument("--dc-modes", nargs="*", choices=["all", "D", "C"], default=["all", "D", "C"])
     parser.add_argument("--amp-mode", type=str, default="zscore", choices=["db_to_linear", "raw_db", "zscore"])
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=8)
@@ -112,13 +121,6 @@ def build_arg_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--smooth-l1-beta", type=float, default=0.1)
-    parser.add_argument("--d-model", type=int, default=32)
-    parser.add_argument("--nhead", type=int, default=2)
-    parser.add_argument("--layers", type=int, default=1)
-    parser.add_argument("--ffn", type=int, default=128)
-    parser.add_argument("--conv-channels", type=int, default=8)
-    parser.add_argument("--kernel-size", type=int, default=9)
-    parser.add_argument("--patch-stride", type=int, default=4)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--summary-only", action="store_true")
     return parser
@@ -145,7 +147,7 @@ def main(args):
         print(f"Dry run complete. Planned report dir: {report_dir}")
         return
 
-    seed_df = pd.DataFrame(all_rows).sort_values(["task", "model", "seed"]).reset_index(drop=True)
+    seed_df = pd.DataFrame(all_rows).sort_values(["task", "dc_mode", "model", "seed"]).reset_index(drop=True)
     summary_df = _aggregate(seed_df)
     seed_df.to_csv(report_dir / "multi_seed_raw.csv", index=False)
     summary_df.to_csv(report_dir / "multi_seed_summary.csv", index=False)
@@ -157,4 +159,3 @@ def main(args):
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
-
