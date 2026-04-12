@@ -40,7 +40,11 @@ class ConvTransformerRegressor(nn.Module):
             nn.GELU(),
         )
 
-        token_len = math.floor((n_freq + 2 * padding - kernel_size) / patch_stride + 1)
+        # Infer token length from the actual stem so the embedding stays aligned
+        # for both odd and even kernel sizes.
+        with torch.no_grad():
+            dummy = torch.zeros(1, d_in, n_freq)
+            token_len = self.stem(dummy).shape[-1]
         self.token_len = token_len
         self.token_embed = nn.Parameter(torch.zeros(1, token_len, d_model))
         nn.init.trunc_normal_(self.token_embed, std=0.02)
@@ -131,3 +135,4 @@ class CNNOnlyRegressor(nn.Module):
         h = self.stem(h)
         h = self.pool(h).reshape(batch_size, -1)
         return self.head(h).squeeze(-1)
+
