@@ -73,9 +73,9 @@ ABLATION_STUDIES = {
             {"variant": "with_pe", "use_pos_enc": True},
             {"variant": "without_pe", "use_pos_enc": False},
         ],
-        "patch_overlap": [
-            {"variant": "overlap_k15_s2", "kernel_size": 15, "patch_stride": 2},
-            {"variant": "nonoverlap_k2_s2", "kernel_size": 2, "patch_stride": 2},
+        "tokenization": [
+            {"variant": "overlap_tokenization_k15_s2", "kernel_size": 15, "patch_stride": 2},
+            {"variant": "nonoverlap_downsampling_k2_s2", "kernel_size": 2, "patch_stride": 2},
         ],
     },
     "soh": {
@@ -106,9 +106,9 @@ ABLATION_STUDIES = {
             {"variant": "with_pe", "use_pos_enc": True},
             {"variant": "without_pe", "use_pos_enc": False},
         ],
-        "patch_overlap": [
-            {"variant": "overlap_k9_s4", "kernel_size": 9, "patch_stride": 4},
-            {"variant": "nonoverlap_k4_s4", "kernel_size": 4, "patch_stride": 4},
+        "tokenization": [
+            {"variant": "overlap_tokenization_k9_s4", "kernel_size": 9, "patch_stride": 4},
+            {"variant": "nonoverlap_downsampling_k4_s4", "kernel_size": 4, "patch_stride": 4},
         ],
     },
 }
@@ -390,3 +390,4 @@ def main(args):
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
+
