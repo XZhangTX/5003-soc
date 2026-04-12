@@ -26,6 +26,7 @@ TASK_FINAL_CONFIGS = {
         "conv_channels": 12,
         "kernel_size": 15,
         "patch_stride": 2,
+        "use_pos_enc": True,
     },
     "soh": {
         "amp_mode": "zscore",
@@ -38,6 +39,7 @@ TASK_FINAL_CONFIGS = {
         "conv_channels": 8,
         "kernel_size": 9,
         "patch_stride": 4,
+        "use_pos_enc": True,
     },
 }
 
@@ -51,6 +53,7 @@ ABLATION_STUDIES = {
         ],
         "architecture": [
             {"variant": "transformer", "model_arch": "transformer"},
+            {"variant": "cnn_only", "model_arch": "cnn_only"},
             {"variant": "conv_transformer", "model_arch": "conv_transformer"},
         ],
         "phase": [
@@ -66,6 +69,14 @@ ABLATION_STUDIES = {
             {"variant": "ps2", "patch_stride": 2},
             {"variant": "ps4", "patch_stride": 4},
         ],
+        "position_encoding": [
+            {"variant": "with_pe", "use_pos_enc": True},
+            {"variant": "without_pe", "use_pos_enc": False},
+        ],
+        "patch_overlap": [
+            {"variant": "overlap_k15_s2", "kernel_size": 15, "patch_stride": 2},
+            {"variant": "nonoverlap_k2_s2", "kernel_size": 2, "patch_stride": 2},
+        ],
     },
     "soh": {
         "preprocess": [
@@ -75,6 +86,7 @@ ABLATION_STUDIES = {
         ],
         "architecture": [
             {"variant": "transformer", "model_arch": "transformer"},
+            {"variant": "cnn_only", "model_arch": "cnn_only"},
             {"variant": "conv_transformer", "model_arch": "conv_transformer"},
         ],
         "phase": [
@@ -89,6 +101,14 @@ ABLATION_STUDIES = {
             {"variant": "ps2", "patch_stride": 2},
             {"variant": "ps4", "patch_stride": 4},
             {"variant": "ps8", "patch_stride": 8},
+        ],
+        "position_encoding": [
+            {"variant": "with_pe", "use_pos_enc": True},
+            {"variant": "without_pe", "use_pos_enc": False},
+        ],
+        "patch_overlap": [
+            {"variant": "overlap_k9_s4", "kernel_size": 9, "patch_stride": 4},
+            {"variant": "nonoverlap_k4_s4", "kernel_size": 4, "patch_stride": 4},
         ],
     },
 }
@@ -122,10 +142,12 @@ def _resolved_task_config(args, task: str):
         "conv_channels",
         "kernel_size",
         "patch_stride",
+        "use_pos_enc",
     ]:
         value = getattr(args, key, None)
         if value is not None:
             config[key] = value
+    config.setdefault("use_pos_enc", True)
     return config
 
 
@@ -197,15 +219,20 @@ def _build_experiments(args):
             amp_mode = variant_cfg.get("amp_mode", task_cfg["amp_mode"])
             model_arch = variant_cfg.get("model_arch", task_cfg["model_arch"])
             loss_type = variant_cfg.get("loss_type", task_cfg["loss_type"])
+            kernel_size = variant_cfg.get("kernel_size", task_cfg["kernel_size"])
             patch_stride = variant_cfg.get("patch_stride", task_cfg["patch_stride"])
             include_phase = bool(variant_cfg.get("include_phase", False))
+            use_pos_enc = bool(variant_cfg.get("use_pos_enc", task_cfg["use_pos_enc"]))
 
             cmd.extend(["--amp-mode", amp_mode])
             cmd.extend(["--model-arch", model_arch])
             cmd.extend(["--loss-type", loss_type])
+            cmd.extend(["--kernel-size", str(kernel_size)])
             cmd.extend(["--patch-stride", str(patch_stride)])
             if include_phase:
                 cmd.append("--include-phase")
+            if not use_pos_enc:
+                cmd.append("--disable-pos-enc")
             cmd.extend(["--tag", tag])
 
             experiments.append(
@@ -217,7 +244,9 @@ def _build_experiments(args):
                     "amp_mode": amp_mode,
                     "include_phase": include_phase,
                     "loss_type": loss_type,
+                    "kernel_size": kernel_size,
                     "patch_stride": patch_stride,
+                    "use_pos_enc": use_pos_enc,
                     "tag": tag,
                     "cmd": cmd,
                 }
@@ -242,7 +271,9 @@ def _summarize(task: str, experiments, output_root: Path, report_dir: Path):
                 "amp_mode": exp["amp_mode"],
                 "include_phase": exp["include_phase"],
                 "loss_type": exp["loss_type"],
+                "kernel_size": exp["kernel_size"],
                 "patch_stride": exp["patch_stride"],
+                "use_pos_enc": exp["use_pos_enc"],
                 "rmse": metrics["rmse"],
                 "mae": metrics["mae"],
                 "r2": metrics["r2"],
@@ -257,17 +288,27 @@ def _summarize(task: str, experiments, output_root: Path, report_dir: Path):
         study_df = df[df["study"] == study]
         lines.append(f"## {study}")
         lines.append("")
-        lines.append("| Variant | Model | Preprocess | Phase | Loss | Patch Stride | RMSE | MAE | R2 |")
-        lines.append("| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
+        lines.append("| Variant | Model | Preprocess | Phase | Loss | PE | Kernel | Patch Stride | RMSE | MAE | R2 |")
+        lines.append("| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |")
         for _, row in study_df.iterrows():
             phase_label = "yes" if row["include_phase"] else "no"
+            pe_label = "yes" if row["use_pos_enc"] else "no"
             lines.append(
-                f"| {row['variant']} | {row['model_arch']} | {row['amp_mode']} | {phase_label} | {row['loss_type']} | {int(row['patch_stride'])} | {row['rmse']:.4f} | {row['mae']:.4f} | {row['r2']:.4f} |"
+                f"| {row['variant']} | {row['model_arch']} | {row['amp_mode']} | {phase_label} | {row['loss_type']} | {pe_label} | {int(row['kernel_size'])} | {int(row['patch_stride'])} | {row['rmse']:.4f} | {row['mae']:.4f} | {row['r2']:.4f} |"
             )
         lines.append("")
     (report_dir / "ablation_summary.md").write_text("\n".join(lines), encoding="utf-8")
     save_json(report_dir / "experiments.json", experiments)
     return df
+
+
+def _parse_optional_bool(value: str):
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "y"}:
+        return True
+    if lowered in {"0", "false", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
 
 
 def build_arg_parser():
@@ -281,7 +322,7 @@ def build_arg_parser():
     parser.add_argument("--data-mode", type=str, default="raw", choices=["all", "raw", "socip0p1", "socip0p5", "socip1p0"])
     parser.add_argument("--dc-mode", type=str, default="all", choices=["all", "D", "C"])
     parser.add_argument("--amp-mode", type=str, default=None, choices=["db_to_linear", "raw_db", "zscore"])
-    parser.add_argument("--model-arch", type=str, default=None, choices=["transformer", "conv_transformer"])
+    parser.add_argument("--model-arch", type=str, default=None, choices=["transformer", "conv_transformer", "cnn_only"])
     parser.add_argument("--loss-type", type=str, default=None, choices=["smooth_l1", "hybrid"])
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=8)
@@ -300,6 +341,7 @@ def build_arg_parser():
     parser.add_argument("--conv-channels", type=int, default=None)
     parser.add_argument("--kernel-size", type=int, default=None)
     parser.add_argument("--patch-stride", type=int, default=None)
+    parser.add_argument("--use-pos-enc", type=_parse_optional_bool, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--summary-only", action="store_true")
     return parser

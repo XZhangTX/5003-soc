@@ -1,4 +1,4 @@
-﻿import math
+import math
 from typing import Optional
 
 import torch
@@ -29,9 +29,13 @@ class SpectrumTransformerRegressor(nn.Module):
         num_layers: int = 4,
         dim_feedforward: int = 256,
         dropout: float = 0.1,
+        use_pos_enc: bool = True,
+        use_freq_gate: bool = True,
     ):
         super().__init__()
         self.n_freq = n_freq
+        self.use_pos_enc = use_pos_enc
+        self.use_freq_gate = use_freq_gate
         self.input_proj = nn.Linear(d_in, d_model)
         self.freq_embed = nn.Embedding(n_freq, d_model)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
@@ -71,14 +75,18 @@ class SpectrumTransformerRegressor(nn.Module):
         freq_index = torch.arange(length, device=x.device)
         h = h + self.freq_embed(freq_index)[None, :, :]
 
-        gate_logits = self.freq_gate(h).squeeze(-1)
-        gate = torch.softmax(gate_logits, dim=1)
-        self.last_freq_attn = gate.detach().cpu()
-        h = h * gate.unsqueeze(-1)
+        if self.use_freq_gate:
+            gate_logits = self.freq_gate(h).squeeze(-1)
+            gate = torch.softmax(gate_logits, dim=1)
+            self.last_freq_attn = gate.detach().cpu()
+            h = h * gate.unsqueeze(-1)
+        else:
+            self.last_freq_attn = None
 
         cls = self.cls_token.expand(batch_size, -1, -1)
         h = torch.cat([cls, h], dim=1)
-        h = self.pos_enc(h)
+        if self.use_pos_enc:
+            h = self.pos_enc(h)
         h = self.encoder(h)
         cls_out = self.norm(h[:, 0, :])
         return self.head(cls_out).squeeze(-1)

@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from src.data import S11AlignedDataset, build_bundle, discover_s11_records
 from src.data.dataset_soh_proxy import S11SOHProxyDataset, build_bundle_soh_proxy, inverse_cycle_scale
-from src.models import ConvTransformerRegressor, SpectrumTransformerRegressor
+from src.models import CNNOnlyRegressor, ConvTransformerRegressor, SpectrumTransformerRegressor
 from src.utils import ensure_dir, regression_metrics, save_json, set_seed, timestamp
 from src.visualization import plot_attention_heatmap, plot_prediction_scatter, plot_training_curve
 
@@ -101,10 +101,26 @@ def build_model(args, train_bundle):
         dropout=args.dropout,
     )
     if args.model_arch == "transformer":
-        return SpectrumTransformerRegressor(**common)
+        return SpectrumTransformerRegressor(
+            **common,
+            use_pos_enc=args.use_pos_enc,
+            use_freq_gate=args.use_freq_gate,
+        )
     if args.model_arch == "conv_transformer":
         return ConvTransformerRegressor(
             **common,
+            conv_channels=args.conv_channels,
+            kernel_size=args.kernel_size,
+            patch_stride=args.patch_stride,
+            use_pos_enc=args.use_pos_enc,
+            use_token_embed=args.use_token_embed,
+        )
+    if args.model_arch == "cnn_only":
+        return CNNOnlyRegressor(
+            d_in=train_bundle.feature_dim,
+            n_freq=len(train_bundle.freqs),
+            d_model=args.d_model,
+            dropout=args.dropout,
             conv_channels=args.conv_channels,
             kernel_size=args.kernel_size,
             patch_stride=args.patch_stride,
@@ -320,7 +336,7 @@ def build_arg_parser(task_default=None, include_task=True):
     parser.add_argument("--tag", type=str, default=None)
     if include_task:
         parser.add_argument("--task", type=str, default=task_default or "soc", choices=["soc", "soh"])
-    parser.add_argument("--model-arch", type=str, default=None, choices=["transformer", "conv_transformer"])
+    parser.add_argument("--model-arch", type=str, default=None, choices=["transformer", "conv_transformer", "cnn_only"])
     parser.add_argument("--data-mode", type=str, default="raw", choices=["all", "raw", "socip0p1", "socip0p5", "socip1p0"])
     parser.add_argument("--name-contains", type=str, default=None)
     parser.add_argument("--include-phase", action="store_true")
@@ -351,11 +367,15 @@ def build_arg_parser(task_default=None, include_task=True):
     parser.add_argument("--conv-channels", type=int, default=32)
     parser.add_argument("--kernel-size", type=int, default=9)
     parser.add_argument("--patch-stride", type=int, default=4)
+    parser.add_argument("--disable-pos-enc", action="store_true")
+    parser.add_argument("--disable-token-embed", action="store_true")
+    parser.add_argument("--disable-freq-gate", action="store_true")
     return parser
 
 
 if __name__ == "__main__":
-    main(build_arg_parser().parse_args())
-
-
-
+    args = build_arg_parser().parse_args()
+    args.use_pos_enc = not args.disable_pos_enc
+    args.use_token_embed = not args.disable_token_embed
+    args.use_freq_gate = not args.disable_freq_gate
+    main(args)
