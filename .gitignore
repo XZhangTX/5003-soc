@@ -39,6 +39,7 @@ Thumbs.db
 output/
 runs/
 *.pt
+report/
 
 # Data and archives
 data_complete/

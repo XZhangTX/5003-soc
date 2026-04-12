@@ -20,8 +20,8 @@ from src.visualization import plot_attention_heatmap, plot_prediction_scatter, p
 TASK_DEFAULTS = {
     "soc": {
         "model_arch": "transformer",
-        "freq_min": 1900000.0,
-        "freq_max": 2150000.0,
+        "freq_min": None,
+        "freq_max": None,
         "output_subdir": "train",
         "label_name": "soc_percent",
         "title": "Validation SOC Scatter",
