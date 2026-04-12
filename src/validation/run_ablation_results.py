@@ -206,15 +206,19 @@ def _base_train_cmd(args, task: str):
     return cmd
 
 
-def _build_experiments(args):
-    studies = args.studies or list(ABLATION_STUDIES[args.task].keys())
+def _selected_tasks(task_arg: str):
+    return ["soc", "soh"] if task_arg == "all" else [task_arg]
+
+
+def _build_experiments_for_task(args, task: str):
+    studies = args.studies or list(ABLATION_STUDIES[task].keys())
     experiments = []
-    task_cfg = _resolved_task_config(args, args.task)
+    task_cfg = _resolved_task_config(args, task)
     for study in studies:
-        variants = ABLATION_STUDIES[args.task][study]
+        variants = ABLATION_STUDIES[task][study]
         for variant_cfg in variants:
-            tag = f"{args.tag}-{args.task}-{study}-{variant_cfg['variant']}"
-            cmd = _base_train_cmd(args, args.task)
+            tag = f"{args.tag}-{task}-{study}-{variant_cfg['variant']}"
+            cmd = _base_train_cmd(args, task)
 
             amp_mode = variant_cfg.get("amp_mode", task_cfg["amp_mode"])
             model_arch = variant_cfg.get("model_arch", task_cfg["model_arch"])
@@ -237,7 +241,7 @@ def _build_experiments(args):
 
             experiments.append(
                 {
-                    "task": args.task,
+                    "task": task,
                     "study": study,
                     "variant": variant_cfg["variant"],
                     "model_arch": model_arch,
@@ -254,7 +258,14 @@ def _build_experiments(args):
     return experiments
 
 
-def _summarize(task: str, experiments, output_root: Path, report_dir: Path):
+def _build_experiments(args):
+    experiments = []
+    for task in _selected_tasks(args.task):
+        experiments.extend(_build_experiments_for_task(args, task))
+    return experiments
+
+
+def _summarize(experiments, output_root: Path, report_dir: Path):
     rows = []
     for exp in experiments:
         pred_path = _prediction_path(exp, output_root)
@@ -280,23 +291,27 @@ def _summarize(task: str, experiments, output_root: Path, report_dir: Path):
                 "predictions_path": str(pred_path),
             }
         )
-    df = pd.DataFrame(rows).sort_values(["study", "rmse", "variant"]).reset_index(drop=True)
+    df = pd.DataFrame(rows).sort_values(["task", "study", "rmse", "variant"]).reset_index(drop=True)
     df.to_csv(report_dir / "ablation_summary.csv", index=False)
 
-    lines = [f"# {task.upper()} Ablation", ""]
-    for study in df["study"].drop_duplicates():
-        study_df = df[df["study"] == study]
-        lines.append(f"## {study}")
+    lines = ["# Ablation Summary", ""]
+    for task in df["task"].drop_duplicates():
+        task_df = df[df["task"] == task]
+        lines.append(f"## {task}")
         lines.append("")
-        lines.append("| Variant | Model | Preprocess | Phase | Loss | PE | Kernel | Patch Stride | RMSE | MAE | R2 |")
-        lines.append("| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |")
-        for _, row in study_df.iterrows():
-            phase_label = "yes" if row["include_phase"] else "no"
-            pe_label = "yes" if row["use_pos_enc"] else "no"
-            lines.append(
-                f"| {row['variant']} | {row['model_arch']} | {row['amp_mode']} | {phase_label} | {row['loss_type']} | {pe_label} | {int(row['kernel_size'])} | {int(row['patch_stride'])} | {row['rmse']:.4f} | {row['mae']:.4f} | {row['r2']:.4f} |"
-            )
-        lines.append("")
+        for study in task_df["study"].drop_duplicates():
+            study_df = task_df[task_df["study"] == study]
+            lines.append(f"### {study}")
+            lines.append("")
+            lines.append("| Variant | Model | Preprocess | Phase | Loss | PE | Kernel | Patch Stride | RMSE | MAE | R2 |")
+            lines.append("| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |")
+            for _, row in study_df.iterrows():
+                phase_label = "yes" if row["include_phase"] else "no"
+                pe_label = "yes" if row["use_pos_enc"] else "no"
+                lines.append(
+                    f"| {row['variant']} | {row['model_arch']} | {row['amp_mode']} | {phase_label} | {row['loss_type']} | {pe_label} | {int(row['kernel_size'])} | {int(row['patch_stride'])} | {row['rmse']:.4f} | {row['mae']:.4f} | {row['r2']:.4f} |"
+                )
+            lines.append("")
     (report_dir / "ablation_summary.md").write_text("\n".join(lines), encoding="utf-8")
     save_json(report_dir / "experiments.json", experiments)
     return df
@@ -313,7 +328,7 @@ def _parse_optional_bool(value: str):
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(description="Run task-specific ablation studies for SOC/SOH")
-    parser.add_argument("--task", type=str, required=True, choices=["soc", "soh"])
+    parser.add_argument("--task", type=str, required=True, choices=["soc", "soh", "all"])
     parser.add_argument("--studies", nargs="*", default=None)
     parser.add_argument("--input-root", type=Path, default=Path(r"D:\SOC_DATA\data_complete\data_processing\S11_ALIGN_SOC_new"))
     parser.add_argument("--output-root", type=Path, default=Path("output"))
@@ -348,11 +363,12 @@ def build_arg_parser():
 
 
 def main(args):
-    valid_studies = set(ABLATION_STUDIES[args.task].keys())
-    if args.studies is not None:
-        unknown = set(args.studies) - valid_studies
-        if unknown:
-            raise ValueError(f"Unsupported studies for {args.task}: {sorted(unknown)}")
+    for task in _selected_tasks(args.task):
+        valid_studies = set(ABLATION_STUDIES[task].keys())
+        if args.studies is not None:
+            unknown = set(args.studies) - valid_studies
+            if unknown:
+                raise ValueError(f"Unsupported studies for {task}: {sorted(unknown)}")
 
     run_tag = args.tag or f"ablation-{args.task}-{timestamp()}"
     args.tag = run_tag
@@ -367,7 +383,7 @@ def main(args):
         print(f"Dry run complete. Planned report dir: {report_dir}")
         return
 
-    summary_df = _summarize(args.task, experiments, args.output_root, report_dir)
+    summary_df = _summarize(experiments, args.output_root, report_dir)
     print(summary_df.to_string(index=False))
     print(f"Saved ablation summary to {report_dir}")
 
