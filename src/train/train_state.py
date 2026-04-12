@@ -281,18 +281,6 @@ def main(args):
         print(f"Epoch {epoch:03d} | lr={optimizer.param_groups[0]['lr']:.6g} | train_loss={row['train_loss']:.4f} | val_rmse={metrics['rmse']:.4f} | val_mae={metrics['mae']:.4f} | val_r2={metrics['r2']:.4f}")
 
         pd.DataFrame(log_rows).to_csv(run_dir / "training_log.csv", index=False)
-        pd.DataFrame({"y_true": y_true, "y_pred": y_pred}).to_csv(run_dir / "val_predictions.csv", index=False)
-        plot_prediction_scatter(
-            y_true,
-            y_pred,
-            run_dir / "val_scatter.png",
-            title=defaults["title"],
-            xlabel=defaults["xlabel"],
-            ylabel=defaults["ylabel"],
-        )
-        if attention is not None and attention.ndim == 1 and len(attention) == len(train_bundle.freqs):
-            pd.DataFrame({"freq": train_bundle.freqs, "weight": attention}).to_csv(run_dir / "attention.csv", index=False)
-            plot_attention_heatmap(train_bundle.freqs, attention, run_dir / "attention_heatmap.png")
 
         payload = {
             "model": model.state_dict(),
@@ -308,6 +296,18 @@ def main(args):
             best_rmse = metrics["rmse"]
             patience_counter = 0
             torch.save(payload, best_path)
+            pd.DataFrame({"y_true": y_true, "y_pred": y_pred}).to_csv(run_dir / "val_predictions.csv", index=False)
+            plot_prediction_scatter(
+                y_true,
+                y_pred,
+                run_dir / "val_scatter.png",
+                title=defaults["title"],
+                xlabel=defaults["xlabel"],
+                ylabel=defaults["ylabel"],
+            )
+            if attention is not None and attention.ndim == 1 and len(attention) == len(train_bundle.freqs):
+                pd.DataFrame({"freq": train_bundle.freqs, "weight": attention}).to_csv(run_dir / "attention.csv", index=False)
+                plot_attention_heatmap(train_bundle.freqs, attention, run_dir / "attention_heatmap.png")
         else:
             patience_counter += 1
             if patience_counter >= args.patience:
@@ -379,3 +379,4 @@ if __name__ == "__main__":
     args.use_token_embed = not args.disable_token_embed
     args.use_freq_gate = not args.disable_freq_gate
     main(args)
+
