@@ -14,43 +14,81 @@ TASK_OUTPUT_DIR = {
 }
 
 
+TASK_FINAL_CONFIGS = {
+    "soc": {
+        "amp_mode": "zscore",
+        "model_arch": "conv_transformer",
+        "loss_type": "smooth_l1",
+        "d_model": 32,
+        "nhead": 2,
+        "layers": 1,
+        "ffn": 128,
+        "conv_channels": 12,
+        "kernel_size": 15,
+        "patch_stride": 2,
+    },
+    "soh": {
+        "amp_mode": "zscore",
+        "model_arch": "conv_transformer",
+        "loss_type": "smooth_l1",
+        "d_model": 32,
+        "nhead": 2,
+        "layers": 1,
+        "ffn": 128,
+        "conv_channels": 8,
+        "kernel_size": 9,
+        "patch_stride": 4,
+    },
+}
+
+
 ABLATION_STUDIES = {
     "soc": {
         "preprocess": [
-            {"variant": "raw_db", "amp_mode": "raw_db", "model_arch": "conv_transformer"},
-            {"variant": "db_to_linear", "amp_mode": "db_to_linear", "model_arch": "conv_transformer"},
-            {"variant": "zscore", "amp_mode": "zscore", "model_arch": "conv_transformer"},
+            {"variant": "raw_db", "amp_mode": "raw_db"},
+            {"variant": "db_to_linear", "amp_mode": "db_to_linear"},
+            {"variant": "zscore", "amp_mode": "zscore"},
         ],
         "architecture": [
-            {"variant": "transformer", "amp_mode": "zscore", "model_arch": "transformer"},
-            {"variant": "conv_transformer", "amp_mode": "zscore", "model_arch": "conv_transformer"},
+            {"variant": "transformer", "model_arch": "transformer"},
+            {"variant": "conv_transformer", "model_arch": "conv_transformer"},
         ],
         "phase": [
-            {"variant": "mag_only", "amp_mode": "zscore", "model_arch": "conv_transformer", "include_phase": False},
-            {"variant": "mag_phase", "amp_mode": "zscore", "model_arch": "conv_transformer", "include_phase": True},
+            {"variant": "mag_only", "include_phase": False},
+            {"variant": "mag_phase", "include_phase": True},
         ],
         "loss": [
-            {"variant": "hybrid", "amp_mode": "zscore", "model_arch": "conv_transformer", "loss_type": "hybrid"},
-            {"variant": "smooth_l1", "amp_mode": "zscore", "model_arch": "conv_transformer", "loss_type": "smooth_l1"},
+            {"variant": "hybrid", "loss_type": "hybrid"},
+            {"variant": "smooth_l1", "loss_type": "smooth_l1"},
+        ],
+        "patch_stride": [
+            {"variant": "ps1", "patch_stride": 1},
+            {"variant": "ps2", "patch_stride": 2},
+            {"variant": "ps4", "patch_stride": 4},
         ],
     },
     "soh": {
         "preprocess": [
-            {"variant": "raw_db", "amp_mode": "raw_db", "model_arch": "conv_transformer"},
-            {"variant": "db_to_linear", "amp_mode": "db_to_linear", "model_arch": "conv_transformer"},
-            {"variant": "zscore", "amp_mode": "zscore", "model_arch": "conv_transformer"},
+            {"variant": "raw_db", "amp_mode": "raw_db"},
+            {"variant": "db_to_linear", "amp_mode": "db_to_linear"},
+            {"variant": "zscore", "amp_mode": "zscore"},
         ],
         "architecture": [
-            {"variant": "transformer", "amp_mode": "zscore", "model_arch": "transformer"},
-            {"variant": "conv_transformer", "amp_mode": "zscore", "model_arch": "conv_transformer"},
+            {"variant": "transformer", "model_arch": "transformer"},
+            {"variant": "conv_transformer", "model_arch": "conv_transformer"},
         ],
         "phase": [
-            {"variant": "mag_only", "amp_mode": "zscore", "model_arch": "conv_transformer", "include_phase": False},
-            {"variant": "mag_phase", "amp_mode": "zscore", "model_arch": "conv_transformer", "include_phase": True},
+            {"variant": "mag_only", "include_phase": False},
+            {"variant": "mag_phase", "include_phase": True},
         ],
         "loss": [
-            {"variant": "hybrid", "amp_mode": "zscore", "model_arch": "conv_transformer", "loss_type": "hybrid"},
-            {"variant": "smooth_l1", "amp_mode": "zscore", "model_arch": "conv_transformer", "loss_type": "smooth_l1"},
+            {"variant": "hybrid", "loss_type": "hybrid"},
+            {"variant": "smooth_l1", "loss_type": "smooth_l1"},
+        ],
+        "patch_stride": [
+            {"variant": "ps2", "patch_stride": 2},
+            {"variant": "ps4", "patch_stride": 4},
+            {"variant": "ps8", "patch_stride": 8},
         ],
     },
 }
@@ -71,7 +109,28 @@ def _entry_module(task: str) -> str:
     return "src.train.train" if task == "soc" else "src.train.train_soh_proxy"
 
 
+def _resolved_task_config(args, task: str):
+    config = dict(TASK_FINAL_CONFIGS[task])
+    for key in [
+        "amp_mode",
+        "model_arch",
+        "loss_type",
+        "d_model",
+        "nhead",
+        "layers",
+        "ffn",
+        "conv_channels",
+        "kernel_size",
+        "patch_stride",
+    ]:
+        value = getattr(args, key, None)
+        if value is not None:
+            config[key] = value
+    return config
+
+
 def _base_train_cmd(args, task: str):
+    task_cfg = _resolved_task_config(args, task)
     cmd = [
         sys.executable,
         "-u",
@@ -92,25 +151,25 @@ def _base_train_cmd(args, task: str):
         "--val-num-workers",
         str(args.val_num_workers),
         "--d-model",
-        str(args.d_model),
+        str(task_cfg["d_model"]),
         "--nhead",
-        str(args.nhead),
+        str(task_cfg["nhead"]),
         "--layers",
-        str(args.layers),
+        str(task_cfg["layers"]),
         "--ffn",
-        str(args.ffn),
+        str(task_cfg["ffn"]),
         "--conv-channels",
-        str(args.conv_channels),
+        str(task_cfg["conv_channels"]),
         "--kernel-size",
-        str(args.kernel_size),
+        str(task_cfg["kernel_size"]),
         "--patch-stride",
-        str(args.patch_stride),
+        str(task_cfg["patch_stride"]),
         "--lr",
         str(args.lr),
         "--weight-decay",
         str(args.weight_decay),
         "--loss-type",
-        args.loss_type,
+        task_cfg["loss_type"],
         "--smooth-l1-beta",
         str(args.smooth_l1_beta),
         "--epochs",
@@ -128,26 +187,37 @@ def _base_train_cmd(args, task: str):
 def _build_experiments(args):
     studies = args.studies or list(ABLATION_STUDIES[args.task].keys())
     experiments = []
+    task_cfg = _resolved_task_config(args, args.task)
     for study in studies:
         variants = ABLATION_STUDIES[args.task][study]
         for variant_cfg in variants:
             tag = f"{args.tag}-{args.task}-{study}-{variant_cfg['variant']}"
             cmd = _base_train_cmd(args, args.task)
-            cmd.extend(["--amp-mode", variant_cfg.get("amp_mode", args.amp_mode)])
-            cmd.extend(["--model-arch", variant_cfg.get("model_arch", args.model_arch)])
-            cmd.extend(["--loss-type", variant_cfg.get("loss_type", args.loss_type)])
-            if variant_cfg.get("include_phase", False):
+
+            amp_mode = variant_cfg.get("amp_mode", task_cfg["amp_mode"])
+            model_arch = variant_cfg.get("model_arch", task_cfg["model_arch"])
+            loss_type = variant_cfg.get("loss_type", task_cfg["loss_type"])
+            patch_stride = variant_cfg.get("patch_stride", task_cfg["patch_stride"])
+            include_phase = bool(variant_cfg.get("include_phase", False))
+
+            cmd.extend(["--amp-mode", amp_mode])
+            cmd.extend(["--model-arch", model_arch])
+            cmd.extend(["--loss-type", loss_type])
+            cmd.extend(["--patch-stride", str(patch_stride)])
+            if include_phase:
                 cmd.append("--include-phase")
             cmd.extend(["--tag", tag])
+
             experiments.append(
                 {
                     "task": args.task,
                     "study": study,
                     "variant": variant_cfg["variant"],
-                    "model_arch": variant_cfg.get("model_arch", args.model_arch),
-                    "amp_mode": variant_cfg.get("amp_mode", args.amp_mode),
-                    "include_phase": bool(variant_cfg.get("include_phase", False)),
-                    "loss_type": variant_cfg.get("loss_type", args.loss_type),
+                    "model_arch": model_arch,
+                    "amp_mode": amp_mode,
+                    "include_phase": include_phase,
+                    "loss_type": loss_type,
+                    "patch_stride": patch_stride,
                     "tag": tag,
                     "cmd": cmd,
                 }
@@ -172,6 +242,7 @@ def _summarize(task: str, experiments, output_root: Path, report_dir: Path):
                 "amp_mode": exp["amp_mode"],
                 "include_phase": exp["include_phase"],
                 "loss_type": exp["loss_type"],
+                "patch_stride": exp["patch_stride"],
                 "rmse": metrics["rmse"],
                 "mae": metrics["mae"],
                 "r2": metrics["r2"],
@@ -186,12 +257,12 @@ def _summarize(task: str, experiments, output_root: Path, report_dir: Path):
         study_df = df[df["study"] == study]
         lines.append(f"## {study}")
         lines.append("")
-        lines.append("| Variant | Model | Preprocess | Phase | Loss | RMSE | MAE | R2 |")
-        lines.append("| --- | --- | --- | --- | --- | ---: | ---: | ---: |")
+        lines.append("| Variant | Model | Preprocess | Phase | Loss | Patch Stride | RMSE | MAE | R2 |")
+        lines.append("| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
         for _, row in study_df.iterrows():
             phase_label = "yes" if row["include_phase"] else "no"
             lines.append(
-                f"| {row['variant']} | {row['model_arch']} | {row['amp_mode']} | {phase_label} | {row['loss_type']} | {row['rmse']:.4f} | {row['mae']:.4f} | {row['r2']:.4f} |"
+                f"| {row['variant']} | {row['model_arch']} | {row['amp_mode']} | {phase_label} | {row['loss_type']} | {int(row['patch_stride'])} | {row['rmse']:.4f} | {row['mae']:.4f} | {row['r2']:.4f} |"
             )
         lines.append("")
     (report_dir / "ablation_summary.md").write_text("\n".join(lines), encoding="utf-8")
@@ -209,9 +280,9 @@ def build_arg_parser():
     parser.add_argument("--tag", type=str, default=None)
     parser.add_argument("--data-mode", type=str, default="raw", choices=["all", "raw", "socip0p1", "socip0p5", "socip1p0"])
     parser.add_argument("--dc-mode", type=str, default="all", choices=["all", "D", "C"])
-    parser.add_argument("--amp-mode", type=str, default="zscore", choices=["db_to_linear", "raw_db", "zscore"])
-    parser.add_argument("--model-arch", type=str, default="conv_transformer", choices=["transformer", "conv_transformer"])
-    parser.add_argument("--loss-type", type=str, default="smooth_l1", choices=["smooth_l1", "hybrid"])
+    parser.add_argument("--amp-mode", type=str, default=None, choices=["db_to_linear", "raw_db", "zscore"])
+    parser.add_argument("--model-arch", type=str, default=None, choices=["transformer", "conv_transformer"])
+    parser.add_argument("--loss-type", type=str, default=None, choices=["smooth_l1", "hybrid"])
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--val-num-workers", type=int, default=4)
@@ -222,13 +293,13 @@ def build_arg_parser():
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--smooth-l1-beta", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--d-model", type=int, default=32)
-    parser.add_argument("--nhead", type=int, default=2)
-    parser.add_argument("--layers", type=int, default=1)
-    parser.add_argument("--ffn", type=int, default=128)
-    parser.add_argument("--conv-channels", type=int, default=8)
-    parser.add_argument("--kernel-size", type=int, default=9)
-    parser.add_argument("--patch-stride", type=int, default=4)
+    parser.add_argument("--d-model", type=int, default=None)
+    parser.add_argument("--nhead", type=int, default=None)
+    parser.add_argument("--layers", type=int, default=None)
+    parser.add_argument("--ffn", type=int, default=None)
+    parser.add_argument("--conv-channels", type=int, default=None)
+    parser.add_argument("--kernel-size", type=int, default=None)
+    parser.add_argument("--patch-stride", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--summary-only", action="store_true")
     return parser
@@ -261,5 +332,3 @@ def main(args):
 
 if __name__ == "__main__":
     main(build_arg_parser().parse_args())
-
-
