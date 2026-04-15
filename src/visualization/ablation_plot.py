@@ -150,8 +150,9 @@ def _plot_task_single_axis(df: pd.DataFrame, metric: str, studies: list[str], ta
     ymin, ymax = ax.get_ylim()
     for separator in separators[:-1]:
         ax.axvline(separator + 0.4, color="#bbbbbb", linestyle="--", linewidth=1.0, alpha=0.8)
+    label_y = ymin - 0.10 * (ymax - ymin)
     for center, title in group_centers:
-        ax.text(center, ymax + 0.03 * (ymax - ymin), title, ha="center", va="bottom", fontsize=10, fontweight="bold")
+        ax.text(center, label_y, title, ha="center", va="top", fontsize=9, fontweight="bold")
 
     legend_handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=STUDY_COLORS.get(study, "#999999"), edgecolor="none", label=STUDY_TITLES.get(study, study))
@@ -159,7 +160,7 @@ def _plot_task_single_axis(df: pd.DataFrame, metric: str, studies: list[str], ta
         if study in subset["study"].unique()
     ]
     ax.legend(handles=legend_handles, loc="upper right", frameon=False, fontsize=9)
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0.08, 1, 0.96])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
