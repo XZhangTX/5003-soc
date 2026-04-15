@@ -140,7 +140,7 @@ def _plot_task_single_axis(df: pd.DataFrame, metric: str, studies: list[str], ta
     ax.set_xticks(positions)
     ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
     ax.set_ylabel(metric.upper() if metric != "r2" else r"$R^2$")
-    ax.set_title(f"{task} Ablation Results ({metric.upper() if metric != 'r2' else '$R^2$'})", fontsize=17)
+    ax.set_title(f"{task} Ablation Results ({metric.upper() if metric != 'r2' else '$R^2$'})", fontsize=17, pad=24)
     ax.grid(True, axis="y", alpha=0.25)
 
     for bar, value in zip(bars, values):
@@ -150,7 +150,7 @@ def _plot_task_single_axis(df: pd.DataFrame, metric: str, studies: list[str], ta
     ymin, ymax = ax.get_ylim()
     for separator in separators[:-1]:
         ax.axvline(separator + 0.4, color="#bbbbbb", linestyle="--", linewidth=1.0, alpha=0.8)
-    label_y = ymax + 0.012 * (ymax - ymin)
+    label_y = ymax + 0.002 * (ymax - ymin)
     for center, title in group_centers:
         ax.text(center, label_y, title, ha="center", va="bottom", fontsize=8.5, fontweight="bold")
 
@@ -160,7 +160,7 @@ def _plot_task_single_axis(df: pd.DataFrame, metric: str, studies: list[str], ta
         if study in subset["study"].unique()
     ]
     ax.legend(handles=legend_handles, loc="upper right", frameon=False, fontsize=8, handlelength=1.2, borderpad=0.2, labelspacing=0.3)
-    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    fig.tight_layout(rect=[0, 0, 1, 0.90])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
