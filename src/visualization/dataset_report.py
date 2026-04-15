@@ -277,6 +277,109 @@ def _plot_global_records_heatmap(records, out_path: Path, freq_min=None, freq_ma
     plt.close(fig)
 
 
+def _collect_cycle_mean_curves(records, freq_min=None, freq_max=None, dc_mode="all", amp_mode="raw_db"):
+    rows = []
+    freqs_template = None
+    for record in records:
+        mag_df = _read_mag(record)
+        freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
+        if len(freq_cols) == 0 or "Cycle" not in mag_df.columns:
+            continue
+        if freqs_template is None:
+            freqs_template = freqs
+        elif len(freqs_template) != len(freqs) or not np.allclose(freqs_template, freqs):
+            continue
+
+        mask = np.ones(len(mag_df), dtype=bool)
+        if dc_mode in {"C", "D"} and "DC" in mag_df.columns:
+            mask &= mag_df["DC"].astype(str).str.upper().eq(dc_mode).to_numpy()
+        if not mask.any():
+            continue
+
+        cycle_values = mag_df.loc[mask, "Cycle"].astype(np.float32).to_numpy()
+        unique_cycles = np.sort(np.unique(cycle_values))
+        for cycle in unique_cycles:
+            cycle_mask = mask & (mag_df["Cycle"].astype(np.float32).to_numpy() == cycle)
+            curve = mag_df.loc[cycle_mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+            curve = _apply_amp_mode(curve, amp_mode)
+            rows.append(
+                {
+                    "record_id": record.record_id,
+                    "day": record.day,
+                    "cycle": float(cycle),
+                    "curve": curve,
+                }
+            )
+    if not rows or freqs_template is None:
+        return np.asarray([]), []
+    rows.sort(key=lambda item: (item["cycle"], item["record_id"]))
+    return np.asarray(freqs_template), rows
+
+
+def _plot_all_cycles_heatmap(records, out_path: Path, freq_min=None, freq_max=None, dc_mode="all", amp_mode="raw_db"):
+    freqs, rows = _collect_cycle_mean_curves(
+        records, freq_min=freq_min, freq_max=freq_max, dc_mode=dc_mode, amp_mode=amp_mode
+    )
+    if len(rows) == 0:
+        return
+
+    curves = np.stack([row["curve"] for row in rows], axis=0)
+    cycle_labels = [int(row["cycle"]) for row in rows]
+    record_labels = [row["record_id"] for row in rows]
+
+    fig, ax = plt.subplots(figsize=(12, max(6, 0.10 * len(rows))))
+    im = ax.imshow(curves, aspect="auto", cmap="viridis")
+    step = max(1, len(freqs) // 12)
+    xticks = np.arange(0, len(freqs), step)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([f"{freqs[idx]:.0f}" for idx in xticks], rotation=45, ha="right")
+
+    if len(rows) <= 80:
+        ytick_idx = np.arange(len(rows))
+        ax.set_yticks(ytick_idx)
+        ax.set_yticklabels([f"{record_labels[idx]} | C{cycle_labels[idx]}" for idx in ytick_idx], fontsize=6)
+    else:
+        ytick_idx = np.linspace(0, len(rows) - 1, min(12, len(rows)), dtype=int)
+        ax.set_yticks(ytick_idx)
+        ax.set_yticklabels([f"C{cycle_labels[idx]}" for idx in ytick_idx], fontsize=8)
+
+    ax.set_title(f"All-Cycle Panorama Heatmap ({len(rows)} cycles)")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Cycle")
+    fig.colorbar(im, ax=ax, label="Magnitude" if amp_mode == "db_to_linear" else "Magnitude (dB)")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+def _plot_all_cycles_overview(records, out_path: Path, freq_min=None, freq_max=None, dc_mode="all", amp_mode="raw_db"):
+    freqs, rows = _collect_cycle_mean_curves(
+        records, freq_min=freq_min, freq_max=freq_max, dc_mode=dc_mode, amp_mode=amp_mode
+    )
+    if len(rows) == 0:
+        return
+
+    curves = np.stack([row["curve"] for row in rows], axis=0)
+    cycles = np.asarray([row["cycle"] for row in rows], dtype=np.float32)
+    norm = plt.Normalize(vmin=float(cycles.min()), vmax=float(cycles.max()))
+    cmap = plt.cm.plasma
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    for curve, cycle in zip(curves, cycles):
+        ax.plot(freqs, curve, linewidth=0.6, alpha=0.18, color=cmap(norm(float(cycle))))
+    ax.plot(freqs, curves.mean(axis=0), linewidth=2.0, color="#1f77b4", label="Global Mean")
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    fig.colorbar(sm, ax=ax, label="Cycle Index")
+    ax.set_title(f"All-Cycle Overlay ({len(rows)} cycles)")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Magnitude" if amp_mode == "db_to_linear" else "Magnitude (dB)")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
 def _plot_amp_mode_comparison(record, out_path: Path, freq_min=None, freq_max=None):
     mag_df = _read_mag(record)
     freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
@@ -686,6 +789,22 @@ def main(args):
     _plot_global_records_heatmap(
         records,
         figures_dir / "global_records_heatmap.png",
+        freq_min=args.freq_min,
+        freq_max=args.freq_max,
+        dc_mode=args.dc_mode,
+        amp_mode="raw_db",
+    )
+    _plot_all_cycles_overview(
+        records,
+        figures_dir / "all_cycles_overlay.png",
+        freq_min=args.freq_min,
+        freq_max=args.freq_max,
+        dc_mode=args.dc_mode,
+        amp_mode="raw_db",
+    )
+    _plot_all_cycles_heatmap(
+        records,
+        figures_dir / "all_cycles_heatmap.png",
         freq_min=args.freq_min,
         freq_max=args.freq_max,
         dc_mode=args.dc_mode,
