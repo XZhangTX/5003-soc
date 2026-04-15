@@ -201,6 +201,82 @@ def _plot_different_records_same_soc(records_with_soc, out_path: Path, freq_min=
 
 
 
+def _collect_record_mean_curves(records, freq_min=None, freq_max=None, dc_mode="all", amp_mode="raw_db"):
+    record_ids = []
+    mean_curves = []
+    freqs_template = None
+    for record in records:
+        mag_df = _read_mag(record)
+        freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
+        if len(freq_cols) == 0:
+            continue
+        if freqs_template is None:
+            freqs_template = freqs
+        elif len(freqs_template) != len(freqs) or not np.allclose(freqs_template, freqs):
+            continue
+        mask = np.ones(len(mag_df), dtype=bool)
+        if dc_mode in {"C", "D"} and "DC" in mag_df.columns:
+            mask &= mag_df["DC"].astype(str).str.upper().eq(dc_mode).to_numpy()
+        if not mask.any():
+            continue
+        curve = mag_df.loc[mask, freq_cols].astype(np.float32).to_numpy().mean(axis=0)
+        curve = _apply_amp_mode(curve, amp_mode)
+        record_ids.append(record.record_id)
+        mean_curves.append(curve)
+    if not mean_curves or freqs_template is None:
+        return np.asarray([]), np.asarray([]), []
+    return np.asarray(freqs_template), np.asarray(mean_curves), record_ids
+
+
+def _plot_global_records_overlay(records, out_path: Path, freq_min=None, freq_max=None, dc_mode="all", amp_mode="raw_db"):
+    freqs, curves, record_ids = _collect_record_mean_curves(
+        records, freq_min=freq_min, freq_max=freq_max, dc_mode=dc_mode, amp_mode=amp_mode
+    )
+    if len(curves) == 0:
+        return
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for curve in curves:
+        ax.plot(freqs, curve, linewidth=0.8, alpha=0.18, color="#1f77b4")
+    ax.plot(freqs, curves.mean(axis=0), linewidth=2.2, color="#d62728", label="Global Mean")
+    ax.set_title(f"Global Record Overlay ({len(record_ids)} records)")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Magnitude" if amp_mode == "db_to_linear" else "Magnitude (dB)")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+def _plot_global_records_heatmap(records, out_path: Path, freq_min=None, freq_max=None, dc_mode="all", amp_mode="raw_db"):
+    freqs, curves, record_ids = _collect_record_mean_curves(
+        records, freq_min=freq_min, freq_max=freq_max, dc_mode=dc_mode, amp_mode=amp_mode
+    )
+    if len(curves) == 0:
+        return
+    order = np.argsort(record_ids)
+    curves = curves[order]
+    ordered_ids = [record_ids[idx] for idx in order]
+    fig, ax = plt.subplots(figsize=(11, max(5, 0.22 * len(ordered_ids))))
+    im = ax.imshow(curves, aspect="auto", cmap="viridis")
+    step = max(1, len(freqs) // 12)
+    xticks = np.arange(0, len(freqs), step)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([f"{freqs[idx]:.0f}" for idx in xticks], rotation=45, ha="right")
+    if len(ordered_ids) <= 40:
+        ax.set_yticks(np.arange(len(ordered_ids)))
+        ax.set_yticklabels(ordered_ids, fontsize=7)
+    else:
+        ax.set_yticks([])
+    ax.set_title(f"Global Record Heatmap ({len(ordered_ids)} records)")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Record")
+    fig.colorbar(im, ax=ax, label="Magnitude" if amp_mode == "db_to_linear" else "Magnitude (dB)")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
 def _plot_amp_mode_comparison(record, out_path: Path, freq_min=None, freq_max=None):
     mag_df = _read_mag(record)
     freq_cols, freqs = _select_freq_cols(mag_df, freq_min=freq_min, freq_max=freq_max)
@@ -599,6 +675,22 @@ def main(args):
     _plot_single_distribution(soh_train_pct.tolist() + soh_val_pct.tolist(), "SOH Proxy Distribution", "SOH Proxy", figures_dir / "soh_distribution.png")
     _plot_split_distribution(soc_train_pct, soc_val_pct, "SOC Train/Val Split", "SOC (%)", figures_dir / "soc_split_distribution.png")
     _plot_split_distribution(soh_train_pct, soh_val_pct, "SOH Proxy Train/Val Split", "SOH Proxy", figures_dir / "soh_split_distribution.png")
+    _plot_global_records_overlay(
+        records,
+        figures_dir / "global_records_overlay.png",
+        freq_min=args.freq_min,
+        freq_max=args.freq_max,
+        dc_mode=args.dc_mode,
+        amp_mode="raw_db",
+    )
+    _plot_global_records_heatmap(
+        records,
+        figures_dir / "global_records_heatmap.png",
+        freq_min=args.freq_min,
+        freq_max=args.freq_max,
+        dc_mode=args.dc_mode,
+        amp_mode="raw_db",
+    )
 
     rep_record = _pick_record_most_cycles(records)
     if rep_record is not None:
