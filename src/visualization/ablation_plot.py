@@ -57,6 +57,39 @@ def _plot_single_task(ax, df: pd.DataFrame, study: str, task: str, metric: str):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), label, ha="center", va="bottom", fontsize=8)
 
 
+def _plot_task_only_panels(df: pd.DataFrame, metric: str, studies: list[str], task: str, out_path: Path):
+    studies = [study for study in studies if study in df["study"].unique()]
+    if not studies:
+        raise ValueError("No matching studies found in ablation summary")
+
+    n_cols = 2
+    n_rows = int(np.ceil(len(studies) / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(13, max(4.2 * n_rows, 5.2)), squeeze=False)
+    axes_flat = axes.flatten()
+
+    for idx, study in enumerate(studies):
+        ax = axes_flat[idx]
+        ax.text(
+            0.0,
+            1.10,
+            STUDY_TITLES.get(study, study.replace("_", " ").title()),
+            transform=ax.transAxes,
+            fontsize=13,
+            fontweight="bold",
+            ha="left",
+        )
+        _plot_single_task(ax, df, study=study, task=task, metric=metric)
+
+    for idx in range(len(studies), len(axes_flat)):
+        axes_flat[idx].axis("off")
+
+    fig.suptitle(f"{task} Ablation Results ({metric.upper() if metric != 'r2' else '$R^2$'})", fontsize=18, y=0.995)
+    fig.tight_layout(rect=[0, 0, 1, 0.985])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_ablation_panels(df: pd.DataFrame, metric: str, studies: list[str], out_path: Path):
     studies = [study for study in studies if study in df["study"].unique()]
     if not studies:
@@ -88,9 +121,16 @@ def main(args):
     out_dir = ensure_dir(Path(args.output_root))
     df = pd.read_csv(input_table)
     studies = [item.strip() for item in args.studies.split(",") if item.strip()] if args.studies else list(df["study"].drop_duplicates())
-    out_path = out_dir / f"ablation_{args.metric}.png"
-    plot_ablation_panels(df, metric=args.metric, studies=studies, out_path=out_path)
-    print(f"Saved ablation plot to {out_path}")
+    if args.layout == "combined":
+        out_path = out_dir / f"ablation_{args.metric}.png"
+        plot_ablation_panels(df, metric=args.metric, studies=studies, out_path=out_path)
+        print(f"Saved ablation plot to {out_path}")
+    else:
+        soc_path = out_dir / f"ablation_soc_{args.metric}.png"
+        soh_path = out_dir / f"ablation_soh_{args.metric}.png"
+        _plot_task_only_panels(df, metric=args.metric, studies=studies, task="SOC", out_path=soc_path)
+        _plot_task_only_panels(df, metric=args.metric, studies=studies, task="SOH", out_path=soh_path)
+        print(f"Saved ablation plots to {soc_path} and {soh_path}")
 
 
 if __name__ == "__main__":
@@ -99,4 +139,5 @@ if __name__ == "__main__":
     parser.add_argument("--output-root", type=str, default="output/ablation_plots")
     parser.add_argument("--metric", type=str, default="rmse", choices=["rmse", "mae", "r2"])
     parser.add_argument("--studies", type=str, default=None, help="Comma-separated studies to plot")
+    parser.add_argument("--layout", type=str, default="by_task", choices=["combined", "by_task"])
     main(parser.parse_args())
