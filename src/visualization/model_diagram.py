@@ -235,51 +235,53 @@ def _draw_xgb_on_ax(ax):
 
 
 def _draw_conv_transformer_detailed():
-    fig, ax = plt.subplots(figsize=(15, 7.2), facecolor="white")
+    fig, ax = plt.subplots(figsize=(8.2, 12.5), facecolor="white")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
     ax.text(0.02, 0.96, "Detailed Conv-Transformer for Methodology", fontsize=18, fontweight="bold", color=NUS_BLUE, ha="left", va="top")
 
-    _add_group_label(ax, 0.03, 0.82, "Input", NUS_BLUE)
-    _add_group_label(ax, 0.22, 0.82, "Convolutional Front-End", NUS_BLUE)
-    _add_group_label(ax, 0.51, 0.82, "Token Preparation", NUS_ORANGE)
-    _add_group_label(ax, 0.72, 0.82, "Transformer Encoder Stack", NUS_ORANGE)
-    _add_group_label(ax, 0.90, 0.82, "Prediction", NUS_BLUE)
+    _add_group_label(ax, 0.10, 0.88, "Input", NUS_BLUE)
+    _add_group_label(ax, 0.10, 0.75, "Convolutional Front-End", NUS_BLUE)
+    _add_group_label(ax, 0.10, 0.50, "Token Preparation", NUS_ORANGE)
+    _add_group_label(ax, 0.10, 0.28, "Transformer Encoder Stack", NUS_ORANGE)
+    _add_group_label(ax, 0.10, 0.10, "Prediction", NUS_BLUE)
 
-    _add_box(ax, 0.03, 0.50, 0.14, 0.18, "Input Spectrum\n$X \\in \\mathbb{R}^{L \\times d_{in}}$", BLUE_FILL, NUS_BLUE)
+    x = 0.20
+    w = 0.60
+    h_main = 0.085
+    h_small = 0.065
 
-    _add_box(ax, 0.22, 0.55, 0.18, 0.14, "Conv1d\n$k = K, s = 1, p = \\lfloor K/2 \\rfloor$\n$d_{in} \\rightarrow c_{conv}$", BLUE_FILL_DARK, NUS_BLUE, fontsize=10)
-    _add_box(ax, 0.22, 0.30, 0.18, 0.14, "BatchNorm1d + GELU", SOFT_GREY, LINE_GREY, fontsize=10)
-    _add_box(ax, 0.22, 0.05, 0.18, 0.14, "Conv1d\n$k = K, s = S, p = \\lfloor K/2 \\rfloor$\n$c_{conv} \\rightarrow d_{model}$", BLUE_FILL_DARK, NUS_BLUE, fontsize=10)
+    _add_box(ax, x, 0.82, w, h_main, "Input Spectrum  $X \\in \\mathbb{R}^{L \\times d_{in}}$", BLUE_FILL, NUS_BLUE, fontsize=11)
 
-    _add_box(ax, 0.48, 0.55, 0.18, 0.14, "BatchNorm1d + GELU", SOFT_GREY, LINE_GREY, fontsize=10)
-    _add_box(ax, 0.48, 0.30, 0.18, 0.14, "Token Sequence\n$Z \\in \\mathbb{R}^{L' \\times d_{model}}$\n$L' = \\lfloor (L-K)/S \\rfloor + 1$", BLUE_FILL, NUS_BLUE, fontsize=10)
-    _add_box(ax, 0.48, 0.05, 0.18, 0.14, "Add Learned Token Embedding\n(optional)", ORANGE_FILL, NUS_ORANGE, fontsize=10)
+    _add_box(ax, x, 0.69, w, h_main, "Conv1d  $(k=K,\\; s=1,\\; p=\\lfloor K/2 \\rfloor),\\; d_{in} \\rightarrow c_{conv}$", BLUE_FILL_DARK, NUS_BLUE, fontsize=10.5)
+    _add_box(ax, x, 0.60, w, h_small, "BatchNorm1d + GELU", SOFT_GREY, LINE_GREY, fontsize=10.5)
+    _add_box(ax, x, 0.50, w, h_main, "Conv1d  $(k=K,\\; s=S,\\; p=\\lfloor K/2 \\rfloor),\\; c_{conv} \\rightarrow d_{model}$", BLUE_FILL_DARK, NUS_BLUE, fontsize=10.5)
 
-    _add_box(ax, 0.72, 0.60, 0.17, 0.12, "Prepend CLS Token", ORANGE_FILL, NUS_ORANGE, fontsize=10)
-    _add_box(ax, 0.72, 0.40, 0.17, 0.12, "Add Positional Encoding\n(optional)", SOFT_GREY, LINE_GREY, fontsize=10)
-    _add_box(ax, 0.72, 0.18, 0.17, 0.16, "Transformer Encoder Layer × N\nLayerNorm → MHSA → FFN", ORANGE_FILL_DARK, NUS_ORANGE, fontsize=10)
-    _add_box(ax, 0.72, 0.00, 0.17, 0.10, "CLS Output + LayerNorm", SOFT_GREY, LINE_GREY, fontsize=10)
+    _add_box(ax, x, 0.39, w, h_small, "BatchNorm1d + GELU", SOFT_GREY, LINE_GREY, fontsize=10.5)
+    _add_box(ax, x, 0.28, w, h_main, "Token Sequence  $Z \\in \\mathbb{R}^{L' \\times d_{model}}$,   $L' = \\lfloor (L-K)/S \\rfloor + 1$", BLUE_FILL, NUS_BLUE, fontsize=10.5)
+    _add_box(ax, x, 0.18, w, h_small, "Add Learned Token Embedding (optional)  +  Prepend CLS Token  +  Add Positional Encoding (optional)", ORANGE_FILL, NUS_ORANGE, fontsize=10.2)
 
-    _add_box(ax, 0.91, 0.18, 0.08, 0.12, "MLP Head\nLinear → GELU\n→ Dropout → Linear", BLUE_FILL, NUS_BLUE, fontsize=9)
-    _add_box(ax, 0.91, -0.02 + 0.10, 0.08, 0.10, "Prediction\n$\\hat{y}$", BLUE_FILL, NUS_BLUE, fontsize=10)
+    _add_box(ax, x, 0.07, w, h_main, "Transformer Encoder Layer $\\times N$:   LayerNorm  $\\rightarrow$  MHSA  $\\rightarrow$  FFN", ORANGE_FILL_DARK, NUS_ORANGE, fontsize=10.5)
+    _add_box(ax, x, -0.02 + 0.09, w, h_small, "CLS Output + LayerNorm", SOFT_GREY, LINE_GREY, fontsize=10.5)
+    _add_box(ax, x, -0.11 + 0.09, w, h_small, "MLP Head:  Linear  $\\rightarrow$  GELU  $\\rightarrow$  Dropout  $\\rightarrow$  Linear", BLUE_FILL, NUS_BLUE, fontsize=10.2)
+    _add_box(ax, x, -0.20 + 0.09, w, h_small, "Prediction  $\\hat{y}$", BLUE_FILL, NUS_BLUE, fontsize=11)
 
-    _add_arrow(ax, 0.17, 0.59, 0.22, 0.62)
-    _add_arrow(ax, 0.31, 0.55, 0.31, 0.44)
-    _add_arrow(ax, 0.31, 0.30, 0.31, 0.19)
-    _add_arrow(ax, 0.40, 0.12, 0.48, 0.12)
-    _add_arrow(ax, 0.57, 0.30, 0.72, 0.66, color=NUS_ORANGE)
-    _add_arrow(ax, 0.57, 0.12, 0.72, 0.46, color=NUS_ORANGE)
-    _add_arrow(ax, 0.805, 0.60, 0.805, 0.52)
-    _add_arrow(ax, 0.805, 0.40, 0.805, 0.34)
-    _add_arrow(ax, 0.805, 0.18, 0.805, 0.10)
-    _add_arrow(ax, 0.89, 0.05, 0.91, 0.24)
-    _add_arrow(ax, 0.95, 0.18, 0.95, 0.10)
+    xmid = x + w / 2
+    _add_arrow(ax, xmid, 0.82, xmid, 0.775)
+    _add_arrow(ax, xmid, 0.69, xmid, 0.665)
+    _add_arrow(ax, xmid, 0.60, xmid, 0.585)
+    _add_arrow(ax, xmid, 0.50, xmid, 0.455)
+    _add_arrow(ax, xmid, 0.39, xmid, 0.365)
+    _add_arrow(ax, xmid, 0.28, xmid, 0.245)
+    _add_arrow(ax, xmid, 0.18, xmid, 0.155, color=NUS_ORANGE)
+    _add_arrow(ax, xmid, 0.07, xmid, 0.07 - 0.015, color=NUS_ORANGE)
+    _add_arrow(ax, xmid, -0.02 + 0.09, xmid, -0.035 + 0.09)
+    _add_arrow(ax, xmid, -0.11 + 0.09, xmid, -0.125 + 0.09)
 
-    ax.text(0.31, 0.74, "Local spectral motif extraction", fontsize=10, color=NUS_BLUE, ha="center")
-    ax.text(0.57, 0.74, "Overlapping tokenization", fontsize=10, color=NUS_BLUE, ha="center")
-    ax.text(0.805, 0.74, "Global self-attention over compact tokens", fontsize=10, color=NUS_ORANGE, ha="center")
+    ax.text(0.50, 0.735, "Local spectral motif extraction", fontsize=10.5, color=NUS_BLUE, ha="center")
+    ax.text(0.50, 0.325, "Overlapping tokenization and compact sequence construction", fontsize=10.5, color=NUS_BLUE, ha="center")
+    ax.text(0.50, 0.135, "Global self-attention over compact tokens", fontsize=10.5, color=NUS_ORANGE, ha="center")
     return fig
 
 
