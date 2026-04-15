@@ -23,6 +23,16 @@ COLOR_MAP = {
     "SOH": "#EF7C00",
 }
 
+STUDY_COLORS = {
+    "architecture": "#4C78A8",
+    "preprocess": "#F58518",
+    "phase": "#54A24B",
+    "loss": "#E45756",
+    "patch_stride": "#72B7B2",
+    "position_encoding": "#B279A2",
+    "tokenization": "#FF9DA6",
+}
+
 
 def _resolve_input_table(input_path: Path) -> Path:
     if input_path.is_file():
@@ -90,6 +100,71 @@ def _plot_task_only_panels(df: pd.DataFrame, metric: str, studies: list[str], ta
     plt.close(fig)
 
 
+def _plot_task_single_axis(df: pd.DataFrame, metric: str, studies: list[str], task: str, out_path: Path):
+    studies = [study for study in studies if study in df["study"].unique()]
+    if not studies:
+        raise ValueError("No matching studies found in ablation summary")
+
+    subset = df[(df["task"] == task) & (df["study"].isin(studies))].copy()
+    if subset.empty:
+        raise ValueError(f"No rows found for task={task}")
+
+    subset["variant_label"] = subset["variant"].astype(str)
+    positions = []
+    labels = []
+    values = []
+    colors = []
+    group_centers = []
+    separators = []
+    cursor = 0.0
+
+    for study in studies:
+        study_df = subset[subset["study"] == study].copy()
+        if study_df.empty:
+            continue
+        study_df = study_df.sort_values(metric, ascending=(metric != "r2")).reset_index(drop=True)
+        local_positions = []
+        for _, row in study_df.iterrows():
+            positions.append(cursor)
+            local_positions.append(cursor)
+            labels.append(str(row["variant_label"]))
+            values.append(float(row[metric]))
+            colors.append(STUDY_COLORS.get(study, COLOR_MAP.get(task, "#4a5568")))
+            cursor += 1.0
+        group_centers.append((np.mean(local_positions), STUDY_TITLES.get(study, study.replace("_", " ").title())))
+        separators.append(cursor - 0.5)
+        cursor += 0.8
+
+    fig, ax = plt.subplots(figsize=(max(12, 0.72 * len(labels)), 5.8))
+    bars = ax.bar(positions, values, color=colors, width=0.7, alpha=0.9)
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
+    ax.set_ylabel(metric.upper() if metric != "r2" else r"$R^2$")
+    ax.set_title(f"{task} Ablation Results ({metric.upper() if metric != 'r2' else '$R^2$'})", fontsize=17)
+    ax.grid(True, axis="y", alpha=0.25)
+
+    for bar, value in zip(bars, values):
+        label = f"{value:.3f}" if metric == "r2" else f"{value:.2f}"
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), label, ha="center", va="bottom", fontsize=8)
+
+    ymin, ymax = ax.get_ylim()
+    for separator in separators[:-1]:
+        ax.axvline(separator + 0.4, color="#bbbbbb", linestyle="--", linewidth=1.0, alpha=0.8)
+    for center, title in group_centers:
+        ax.text(center, ymax + 0.03 * (ymax - ymin), title, ha="center", va="bottom", fontsize=10, fontweight="bold")
+
+    legend_handles = [
+        plt.Rectangle((0, 0), 1, 1, facecolor=STUDY_COLORS.get(study, "#999999"), edgecolor="none", label=STUDY_TITLES.get(study, study))
+        for study in studies
+        if study in subset["study"].unique()
+    ]
+    ax.legend(handles=legend_handles, loc="upper right", frameon=False, fontsize=9)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_ablation_panels(df: pd.DataFrame, metric: str, studies: list[str], out_path: Path):
     studies = [study for study in studies if study in df["study"].unique()]
     if not studies:
@@ -125,11 +200,17 @@ def main(args):
         out_path = out_dir / f"ablation_{args.metric}.png"
         plot_ablation_panels(df, metric=args.metric, studies=studies, out_path=out_path)
         print(f"Saved ablation plot to {out_path}")
-    else:
+    elif args.layout == "by_task":
         soc_path = out_dir / f"ablation_soc_{args.metric}.png"
         soh_path = out_dir / f"ablation_soh_{args.metric}.png"
         _plot_task_only_panels(df, metric=args.metric, studies=studies, task="SOC", out_path=soc_path)
         _plot_task_only_panels(df, metric=args.metric, studies=studies, task="SOH", out_path=soh_path)
+        print(f"Saved ablation plots to {soc_path} and {soh_path}")
+    else:
+        soc_path = out_dir / f"ablation_soc_{args.metric}_single_axis.png"
+        soh_path = out_dir / f"ablation_soh_{args.metric}_single_axis.png"
+        _plot_task_single_axis(df, metric=args.metric, studies=studies, task="SOC", out_path=soc_path)
+        _plot_task_single_axis(df, metric=args.metric, studies=studies, task="SOH", out_path=soh_path)
         print(f"Saved ablation plots to {soc_path} and {soh_path}")
 
 
@@ -139,5 +220,5 @@ if __name__ == "__main__":
     parser.add_argument("--output-root", type=str, default="output/ablation_plots")
     parser.add_argument("--metric", type=str, default="rmse", choices=["rmse", "mae", "r2"])
     parser.add_argument("--studies", type=str, default=None, help="Comma-separated studies to plot")
-    parser.add_argument("--layout", type=str, default="by_task", choices=["combined", "by_task"])
+    parser.add_argument("--layout", type=str, default="by_task", choices=["combined", "by_task", "single_axis"])
     main(parser.parse_args())
